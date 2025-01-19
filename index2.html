@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circle Manipulation</title>
+    <script src="/scripts/vue.global.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f5f7fa;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            user-select: none;
+        }
+        #app {
+            display: flex;
+            height: 100%;
+        }
+        .toolbar {
+            width: 200px;
+            background-color: #e8ebf0;
+            padding: 10px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+        }
+        .toolbar button {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .svg-container {
+            flex: 1;
+            position: relative;
+        }
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+        circle {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="toolbar">
+        <button @click="setTool('add')">Add</button>
+        <button @click="setTool('remove')">Remove</button>
+        <button @click="setTool('move')">Move</button>
+    </div>
+    <div class="svg-container">
+        <svg @mousedown="startDrag($event)" @mousemove="drag($event)" @mouseup="endDrag">
+            <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2" stroke="blue" stroke-width="2"/>
+            <circle v-for="(point, index) in points" :cx="point.x" :cy="point.y" r="10" fill="blue"
+                    @mousedown.stop="selectPoint(index)"/>
+            <circle :cx="observer.x" :cy="observer.y" r="10" fill="black"
+                    @mousedown.stop="startObserverDrag"/>
+        </svg>
+    </div>
+</div>
+<script>
+    const app = Vue.createApp({
+        data() {
+            return {
+                tool: 'add',
+                points: [],
+                lines: [],
+                observer: { x: 100, y: 100 },
+                draggingPoint: null,
+                draggingObserver: false
+            };
+        },
+        methods: {
+            setTool(tool) {
+                this.tool = tool;
+            },
+            startDrag(event) {
+                if (this.tool === 'add') {
+                    const rect = event.target.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    this.points.push({ x, y });
+                    if (this.points.length > 1) {
+                        const prev = this.points[this.points.length - 2];
+                        this.lines.push({ x1: prev.x, y1: prev.y, x2: x, y2: y });
+                    }
+                }
+            },
+            selectPoint(index) {
+                if (this.tool === 'remove') {
+                    this.points.splice(index, 1);
+                    this.lines = [];
+                    for (let i = 1; i < this.points.length; i++) {
+                        this.lines.push({
+                            x1: this.points[i - 1].x,
+                            y1: this.points[i - 1].y,
+                            x2: this.points[i].x,
+                            y2: this.points[i].y
+                        });
+                    }
+                } else if (this.tool === 'move') {
+                    this.draggingPoint = index;
+                }
+            },
+            drag(event) {
+                if (this.draggingPoint !== null) {
+                    const rect = event.target.getBoundingClientRect();
+                    const x = event.clientX - rect.left;
+                    const y = event.clientY - rect.top;
+                    this.points[this.draggingPoint].x = x;
+                    this.points[this.draggingPoint].y = y;
+                    this.updateLines();
+                } else if (this.draggingObserver) {
+                    const rect = event.target.getBoundingClientRect();
+                    this.observer.x = event.clientX - rect.left;
+                    this.observer.y = event.clientY - rect.top;
+                }
+            },
+            endDrag() {
+                this.draggingPoint = null;
+                this.draggingObserver = false;
+            },
+            startObserverDrag() {
+                this.draggingObserver = true;
+            },
+            updateLines() {
+                this.lines = [];
+                for (let i = 1; i < this.points.length; i++) {
+                    this.lines.push({
+                        x1: this.points[i - 1].x,
+                        y1: this.points[i - 1].y,
+                        x2: this.points[i].x,
+                        y2: this.points[i].y
+                    });
+                }
+            }
+        }
+    });
+
+    app.mount('#app');
+</script>
+</body>
+</html>
