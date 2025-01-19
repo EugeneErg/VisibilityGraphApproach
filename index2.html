@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Circle Manipulation</title>
-    <script src="/scripts/vue.global.js"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <style>
         body {
             margin: 0;
@@ -33,12 +33,11 @@
         }
         .svg-container {
             flex: 1;
-            overflow: scroll;
             position: relative;
         }
         svg {
-            width: 200%;
-            height: 200%;
+            width: 100%;
+            height: 100%;
         }
         circle {
             cursor: pointer;
@@ -53,7 +52,7 @@
         <button @click="setTool('move')">Move</button>
     </div>
     <div class="svg-container">
-        <svg @mousedown="startDrag($event)" @mousemove="drag($event)" @mouseup="endDrag">
+        <svg :viewBox="viewBox" xmlns="http://www.w3.org/2000/svg" @mousedown="startDrag($event)" @mousemove="drag($event)" @mouseup="endDrag">
             <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2" stroke="blue" stroke-width="2"/>
             <circle v-for="(point, index) in points" :cx="point.x" :cy="point.y" r="10" fill="blue"
                     @mousedown.stop="selectPoint(index, $event)"/>
@@ -73,7 +72,10 @@
                 draggingPoint: null,
                 draggingObserver: false,
                 offsetX: 0,
-                offsetY: 0
+                offsetY: 0,
+                viewBox: '0 0 800 600',
+                isPanning: false,
+                panStart: { x: 0, y: 0 }
             };
         },
         methods: {
@@ -82,67 +84,72 @@
             },
             startDrag(event) {
                 if (this.tool === 'add') {
-                    const rect = event.target.getBoundingClientRect();
-                    const x = event.clientX - rect.left + event.target.parentElement.scrollLeft;
-                    const y = event.clientY - rect.top + event.target.parentElement.scrollTop;
-                    this.points.push({ x, y });
-                    if (this.points.length > 1) {
-                        const prev = this.points[this.points.length - 2];
-                        this.lines.push({ x1: prev.x, y1: prev.y, x2: x, y2: y });
-                    }
+                    const coords = this.getSVGCoordinates(event);
+                    this.points.push({ x: coords.x, y: coords.y });
+                    this.updateLines();
+                } else if (event.target.tagName !== 'circle') {
+                    this.isPanning = true;
+                    const [x, y] = this.viewBox.split(' ').map(Number);
+                    this.panStart = { x, y, clientX: event.clientX, clientY: event.clientY };
                 }
+            },
+            getSVGCoordinates(event) {
+                const svg = event.target.closest('svg');
+                const point = svg.createSVGPoint();
+                point.x = event.clientX;
+                point.y = event.clientY;
+                const ctm = svg.getScreenCTM().inverse();
+                const transformed = point.matrixTransform(ctm);
+                return { x: transformed.x, y: transformed.y };
             },
             selectPoint(index, event) {
                 if (this.tool === 'remove') {
                     this.points.splice(index, 1);
-                    this.lines = [];
-                    for (let i = 1; i < this.points.length; i++) {
-                        this.lines.push({
-                            x1: this.points[i - 1].x,
-                            y1: this.points[i - 1].y,
-                            x2: this.points[i].x,
-                            y2: this.points[i].y
-                        });
-                    }
+                    this.updateLines();
                 } else if (this.tool === 'move') {
                     this.draggingPoint = index;
-                    const rect = event.target.getBoundingClientRect();
-                    this.offsetX = this.points[index].x - (event.clientX - rect.left + event.target.parentElement.scrollLeft);
-                    this.offsetY = this.points[index].y - (event.clientY - rect.top + event.target.parentElement.scrollTop);
+                    const coords = this.getSVGCoordinates(event);
+                    this.offsetX = this.points[index].x - coords.x;
+                    this.offsetY = this.points[index].y - coords.y;
                 }
             },
             drag(event) {
                 if (this.draggingPoint !== null) {
-                    const rect = event.target.getBoundingClientRect();
-                    const x = event.clientX - rect.left + event.target.parentElement.scrollLeft + this.offsetX;
-                    const y = event.clientY - rect.top + event.target.parentElement.scrollTop + this.offsetY;
-                    this.points[this.draggingPoint].x = x;
-                    this.points[this.draggingPoint].y = y;
+                    const coords = this.getSVGCoordinates(event);
+                    this.points[this.draggingPoint].x = coords.x + this.offsetX;
+                    this.points[this.draggingPoint].y = coords.y + this.offsetY;
                     this.updateLines();
                 } else if (this.draggingObserver) {
-                    const rect = event.target.getBoundingClientRect();
-                    this.observer.x = event.clientX - rect.left + event.target.parentElement.scrollLeft;
-                    this.observer.y = event.clientY - rect.top + event.target.parentElement.scrollTop;
+                    const coords = this.getSVGCoordinates(event);
+                    this.observer.x = coords.x + this.offsetX;
+                    this.observer.y = coords.y + this.offsetY;
+                } else if (this.isPanning) {
+                    const dx = event.clientX - this.panStart.clientX;
+                    const dy = event.clientY - this.panStart.clientY;
+                    const [x, y, width, height] = this.viewBox.split(' ').map(Number);
+                    this.viewBox = `${this.panStart.x - dx} ${this.panStart.y - dy} ${width} ${height}`;
                 }
             },
             endDrag() {
                 this.draggingPoint = null;
                 this.draggingObserver = false;
+                this.isPanning = false;
             },
             startObserverDrag(event) {
-                const rect = event.target.getBoundingClientRect();
-                this.offsetX = this.observer.x - (event.clientX - rect.left + event.target.parentElement.scrollLeft);
-                this.offsetY = this.observer.y - (event.clientY - rect.top + event.target.parentElement.scrollTop);
+                const coords = this.getSVGCoordinates(event);
+                this.offsetX = this.observer.x - coords.x;
+                this.offsetY = this.observer.y - coords.y;
                 this.draggingObserver = true;
             },
             updateLines() {
                 this.lines = [];
-                for (let i = 1; i < this.points.length; i++) {
+                for (let i = 0; i < this.points.length; i++) {
+                    const nextIndex = (i + 1) % this.points.length;
                     this.lines.push({
-                        x1: this.points[i - 1].x,
-                        y1: this.points[i - 1].y,
-                        x2: this.points[i].x,
-                        y2: this.points[i].y
+                        x1: this.points[i].x,
+                        y1: this.points[i].y,
+                        x2: this.points[nextIndex].x,
+                        y2: this.points[nextIndex].y
                     });
                 }
             }
