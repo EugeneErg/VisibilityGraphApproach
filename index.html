@@ -115,66 +115,8 @@
                 return `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`;
             },
             intersect() {
-                if (
-                    this.equal(this.angleStart, this.lineStartAngle)
-                    && this.equal(this.angleEnd, this.lineEndAngle)
-                ) {
-                    return 'Линия и дуга совпадают';
-                }
-
-                if (
-                    this.equal(this.angleStart, this.lineEndAngle)
-                    && this.equal(this.angleEnd, this.lineStartAngle)
-                ) {
-                    return 'Линия и дуга образуют круг';
-                }
-
-                if (this.equal(this.angleStart, this.lineStartAngle)) {
-                    return this.between(this.lineStartAngle, this.angleEnd, this.lineEndAngle)
-                        ? 'Линия начинается вместе с дугой, но она длиннее'
-                        : 'Линия начинается вместе с дугой, но она короче';
-                }
-
-                if (this.equal(this.angleEnd, this.lineEndAngle)) {
-                    return this.between(this.lineStartAngle, this.angleStart, this.lineEndAngle)
-                        ? 'Линия заканчивается вместе с дугой, но она длиннее'
-                        : 'Линия заканчивается вместе с дугой, но она короче';
-                }
-
-                if (this.equal(this.angleEnd, this.lineStartAngle)) {
-                    return this.between(this.lineStartAngle, this.angleStart, this.lineEndAngle)
-                        ? 'Линия начинается где заканчивается дуга, и заканчивается внутри неё'
-                        : 'Линия начинается где заканчивается дуга, и заканчивается вне её';
-                }
-
-                if (this.equal(this.angleStart, this.lineEndAngle)) {
-                    return this.between(this.lineEndAngle, this.angleEnd, this.lineStartAngle)
-                        ? 'Линия начинается вне дуги и заканчивается где дуга начинается'
-                        : 'Линия начинается внутри дуги и заканчивается где дуга начинается';
-                }
-
-                if (
-                    this.between(this.angleStart, this.lineStartAngle, this.angleEnd)
-                    && this.between(this.angleStart, this.lineEndAngle, this.angleEnd)
-                ) {
-                    return 'Линия находится внутри дуги';
-                }
-
-                if (
-                    this.between(this.angleEnd, this.lineStartAngle, this.angleStart)
-                    && this.between(this.angleEnd, this.lineEndAngle, this.angleStart)
-                ) {
-                    return 'Линия не пересекается с дугой';
-                }
-
-                return this.between(this.lineStartAngle, this.angleStart, this.lineEndAngle)
-                    ? 'Линия заканчивается внутри дуги, а начинается снаружи'
-                    : 'Линия начинается внутри дуги, а заканчивается снаружи';
-
-                return 'test ' + this.getAngle(this.angleStart)
-                    + "\r\n" + this.getAngle(this.angleEnd)
-                    + "\r\n" + this.getAngle(this.lineStartAngle)
-                    + "\r\n" + this.getAngle(this.lineEndAngle);
+                return 'Начальная точка отрезка ' + this.intersectPoint(this.lineStartAngle)
+                    + ', конечная точка отрезка ' + this.intersectPoint(this.lineEndAngle);
             },
             lineColor() {
                 return this.modulo(this.lineStartAngle - this.lineEndAngle) > Math.PI
@@ -183,6 +125,21 @@
             },
         },
         methods: {
+            intersectPoint(angle) {
+                if (this.equal(angle, this.angleStart)) {
+                    return 'равна точке начала дуги';
+                }
+
+                if (this.equal(angle, this.angleEnd)) {
+                    return 'равна точке конца дуги';
+                }
+
+                if (this.between(this.angleStart, angle, this.angleEnd)) {
+                    return 'внутри дуги';
+                }
+
+                return 'снаружи дуги';
+            },
             pointOnCircle(angle) {
                 return {
                     x: this.center.x + this.radius * Math.cos(angle),
