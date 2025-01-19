@@ -33,11 +33,12 @@
         }
         .svg-container {
             flex: 1;
+            overflow: scroll;
             position: relative;
         }
         svg {
-            width: 100%;
-            height: 100%;
+            width: 200%;
+            height: 200%;
         }
         circle {
             cursor: pointer;
@@ -55,9 +56,9 @@
         <svg @mousedown="startDrag($event)" @mousemove="drag($event)" @mouseup="endDrag">
             <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2" stroke="blue" stroke-width="2"/>
             <circle v-for="(point, index) in points" :cx="point.x" :cy="point.y" r="10" fill="blue"
-                    @mousedown.stop="selectPoint(index)"/>
+                    @mousedown.stop="selectPoint(index, $event)"/>
             <circle :cx="observer.x" :cy="observer.y" r="10" fill="black"
-                    @mousedown.stop="startObserverDrag"/>
+                    @mousedown.stop="startObserverDrag($event)"/>
         </svg>
     </div>
 </div>
@@ -70,7 +71,9 @@
                 lines: [],
                 observer: { x: 100, y: 100 },
                 draggingPoint: null,
-                draggingObserver: false
+                draggingObserver: false,
+                offsetX: 0,
+                offsetY: 0
             };
         },
         methods: {
@@ -80,8 +83,8 @@
             startDrag(event) {
                 if (this.tool === 'add') {
                     const rect = event.target.getBoundingClientRect();
-                    const x = event.clientX - rect.left;
-                    const y = event.clientY - rect.top;
+                    const x = event.clientX - rect.left + event.target.parentElement.scrollLeft;
+                    const y = event.clientY - rect.top + event.target.parentElement.scrollTop;
                     this.points.push({ x, y });
                     if (this.points.length > 1) {
                         const prev = this.points[this.points.length - 2];
@@ -89,7 +92,7 @@
                     }
                 }
             },
-            selectPoint(index) {
+            selectPoint(index, event) {
                 if (this.tool === 'remove') {
                     this.points.splice(index, 1);
                     this.lines = [];
@@ -103,27 +106,33 @@
                     }
                 } else if (this.tool === 'move') {
                     this.draggingPoint = index;
+                    const rect = event.target.getBoundingClientRect();
+                    this.offsetX = this.points[index].x - (event.clientX - rect.left + event.target.parentElement.scrollLeft);
+                    this.offsetY = this.points[index].y - (event.clientY - rect.top + event.target.parentElement.scrollTop);
                 }
             },
             drag(event) {
                 if (this.draggingPoint !== null) {
                     const rect = event.target.getBoundingClientRect();
-                    const x = event.clientX - rect.left;
-                    const y = event.clientY - rect.top;
+                    const x = event.clientX - rect.left + event.target.parentElement.scrollLeft + this.offsetX;
+                    const y = event.clientY - rect.top + event.target.parentElement.scrollTop + this.offsetY;
                     this.points[this.draggingPoint].x = x;
                     this.points[this.draggingPoint].y = y;
                     this.updateLines();
                 } else if (this.draggingObserver) {
                     const rect = event.target.getBoundingClientRect();
-                    this.observer.x = event.clientX - rect.left;
-                    this.observer.y = event.clientY - rect.top;
+                    this.observer.x = event.clientX - rect.left + event.target.parentElement.scrollLeft;
+                    this.observer.y = event.clientY - rect.top + event.target.parentElement.scrollTop;
                 }
             },
             endDrag() {
                 this.draggingPoint = null;
                 this.draggingObserver = false;
             },
-            startObserverDrag() {
+            startObserverDrag(event) {
+                const rect = event.target.getBoundingClientRect();
+                this.offsetX = this.observer.x - (event.clientX - rect.left + event.target.parentElement.scrollLeft);
+                this.offsetY = this.observer.y - (event.clientY - rect.top + event.target.parentElement.scrollTop);
                 this.draggingObserver = true;
             },
             updateLines() {
