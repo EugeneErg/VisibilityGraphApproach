@@ -169,14 +169,22 @@
             },
             onScroll(event) {
                 const [x, y, width, height] = this.viewBox.split(' ').map(Number);
+                const scaleFactor = 0.1;
+                const delta = event.deltaY > 0 ? 1 + scaleFactor : 1 - scaleFactor;
+                const newWidth = width * delta;
+                const newHeight = height * delta;
 
-                // Параметры для смещения при скроллинге
-                const scrollSpeed = 10;
-                const deltaX = event.deltaX * scrollSpeed;
-                const deltaY = event.deltaY * scrollSpeed;
+                const svg = event.target.closest('svg');
+                const point = svg.createSVGPoint();
+                point.x = event.clientX;
+                point.y = event.clientY;
+                const ctm = svg.getScreenCTM().inverse();
+                const transformed = point.matrixTransform(ctm);
 
-                // Обновляем позицию viewBox
-                this.viewBox = `${x - deltaX} ${y - deltaY} ${width} ${height}`;
+                const offsetX = (transformed.x - x) * (1 - delta);
+                const offsetY = (transformed.y - y) * (1 - delta);
+
+                this.viewBox = `${x + offsetX} ${y + offsetY} ${newWidth} ${newHeight}`;
             },
         },
         computed: {
