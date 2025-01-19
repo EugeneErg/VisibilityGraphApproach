@@ -58,7 +58,7 @@
              @mousemove="drag($event)"
              @mouseup="endDrag"
              @wheel="onScroll">
-            <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,0,255,0.5)" stroke="blue" stroke-width="2"/>
+            <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,0,255,0.1)"/>
             <line v-for="line in lines"
                   :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
                   stroke="blue" stroke-width="2" />
@@ -433,12 +433,30 @@
                 );
 
                 if (lineDirectionAsc) {
+                    //движемся вперед
                     console.log('equals', state.firstPart === currentPart);
                     state.lastPart.setNext(currentPart);
                     console.log('add');
-                    //движемся вперед
                 } else {
                     //движемся назад
+                    for (
+                        var root = state.lastPart;
+                        root !== null && root.angle.greaterThan(currentPart.angle);
+                        root = root.previous
+                    ) {
+                    }
+
+                    if (root === null) {
+                        return new State(true, currentPart, currentPart);
+                    }
+
+                    root.setNext(currentPart);
+
+                    return new State(
+                        true,
+                        state.firstPart,
+                        currentPart,
+                    );
                 }
 
                 return lineDirectionAsc
