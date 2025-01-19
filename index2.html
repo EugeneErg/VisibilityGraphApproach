@@ -58,7 +58,7 @@
              @mousemove="drag($event)"
              @mouseup="endDrag"
              @wheel="onScroll">
-            <polygon :visiblePoints="points.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,0,255,0.5)" stroke="blue" stroke-width="2"/>
+            <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,0,255,0.5)" stroke="blue" stroke-width="2"/>
             <line v-for="line in lines"
                   :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
                   stroke="blue" stroke-width="2" />
@@ -76,13 +76,210 @@
     </div>
 </div>
 <script>
+    class Part {
+        previous = null;
+        next = null;
+        nextConnected = false;
+
+        constructor(point, angle, distance) {
+            this.point = point;
+            this.angle = angle;
+            this.distance = distance;
+        }
+
+        getPreviousConnected() {
+            return this.previous?.getNextConnected() ?? false;
+        }
+
+        getNextConnected() {
+            return this.nextConnected;
+        }
+
+        unsetPrevious() {
+            this.previous?.unsetNext();
+        }
+
+        setPrevious(previous, connected) {
+            previous.setNext(this, connected);
+        }
+
+        unsetNext() {
+            if (this.next !== null) {
+                this.next.previous = null;
+            }
+            this.next = null;
+        }
+
+        setNext(next, connected) {
+            this.next?.unsetPrevious();
+            this.next = next;
+            this.nextConnected = connected;
+            next.unsetPrevious();
+            next.previous = this;
+        }
+
+        addPrevious(previous, connected) {
+            previous.addNext(this, connected);
+        }
+
+        addNext(next, connected) {
+            next.setNext(this.next, this.nextConnected);
+            this.setNext(next, connected);
+        }
+
+        getNext() {
+            return this.next;
+        }
+    }
+    class Angle {
+        constructor(value = 0) {
+            this.value = value;
+        }
+
+        static pi(value = 1) {
+            return new Angle(Math.PI * value);
+        }
+
+        static degrees(value = 0) {
+            return new Angle((value * Math.PI) / 180);
+        }
+
+        static radian(value = 0) {
+            return new Angle(value);
+        }
+
+        static percent(value = 0) {
+            return new Angle((value * Math.PI) / 50);
+        }
+
+        static asin(num) {
+            const result = Math.asin(num);
+            if (isNaN(result)) {
+                throw new Error(String(num));
+            }
+            return new Angle(result);
+        }
+
+        static max(...angles) {
+            return angles.reduce((result, next) =>
+                    result === null || next.greaterThan(result) ? next : result
+                , null);
+        }
+
+        greaterThan(angle) {
+            return this.value > angle.value;
+        }
+
+        lessThanOrEqual(angle) {
+            return this.value <= angle.value;
+        }
+
+        lessThan(angle) {
+            return this.value < angle.value;
+        }
+
+        greaterThanOrEqual(angle) {
+            return this.value >= angle.value;
+        }
+
+        modulo() {
+            const result = this.value % (Math.PI * 2);
+            return new Angle(result + (result < 0 ? Math.PI * 2 : 0));
+        }
+
+        absolute() {
+            return new Angle(Math.abs(this.value));
+        }
+
+        minus(angle) {
+            return new Angle(this.value - angle.value);
+        }
+
+        plus(angle) {
+            return new Angle(this.value + angle.value);
+        }
+
+        getPi() {
+            return this.value / Math.PI;
+        }
+
+        getDegrees() {
+            return (this.value * 180) / Math.PI;
+        }
+
+        getRadian() {
+            return this.value;
+        }
+
+        getPercent() {
+            return (this.value * 50) / Math.PI;
+        }
+
+        isPositive() {
+            return this.value > 0;
+        }
+
+        between(from, to) {
+            return from.lessThan(to)
+                ? this.greaterThan(from) && this.lessThan(to)
+                : this.greaterThan(from) || this.lessThan(to);
+        }
+
+        in(curve) {
+            return this.between(curve.from, curve.to);
+        }
+
+        isEqual(angle, delta = 0.00000001) {
+            return this.minus(angle).absolute().lessThan(new Angle(delta));
+        }
+
+        divided(divider) {
+            return new Angle(this.value / divider);
+        }
+
+        times(multiplier) {
+            return new Angle(this.value * multiplier);
+        }
+
+        sin() {
+            return Math.sin(this.value);
+        }
+
+        cos() {
+            return Math.cos(this.value);
+        }
+    }
+    class Point {
+        constructor(x, y) {
+            this.x = x;
+            this.y = y;
+        }
+
+        isEqual(other) {
+            return this.x === other.x && this.y === other.y;
+        }
+    }
+
+    class State
+    {
+        constructor(
+            visible,
+            firstPart,
+            lastPart,
+        ) {
+            this.visible = visible;
+            this.firstPart = firstPart;
+            this.lastPart = lastPart;
+        }
+    }
+
     const app = Vue.createApp({
         data() {
             return {
                 tool: 'add',
                 points: [],
                 lines: [],
-                observer: { x: 100, y: 100 },
+                observer: new Point(100, 100),
                 draggingPoint: null,
                 draggingObserver: false,
                 offsetX: 0,
@@ -99,7 +296,7 @@
             startDrag(event) {
                 if (this.tool === 'add') {
                     const coords = this.getSVGCoordinates(event);
-                    this.points.push({ x: coords.x, y: coords.y });
+                    this.points.push(coords);
                     this.updateLines();
                 } else if (event.target.tagName !== 'circle') {
                     this.isPanning = true;
@@ -114,7 +311,7 @@
                 point.y = event.clientY;
                 const ctm = svg.getScreenCTM().inverse();
                 const transformed = point.matrixTransform(ctm);
-                return { x: transformed.x, y: transformed.y };
+                return new Point(transformed.x, transformed.y);
             },
             selectPoint(index, event) {
                 if (this.tool === 'remove') {
@@ -186,10 +383,126 @@
 
                 this.viewBox = `${x + offsetX} ${y + offsetY} ${newWidth} ${newHeight}`;
             },
+            getAngle(visorCoordinate, vertexCoordinate) {
+                if (visorCoordinate.isEqual(vertexCoordinate)) {
+                    return new Angle();
+                }
+                return new Angle(Math.atan2(
+                    visorCoordinate.y - vertexCoordinate.y,
+                    visorCoordinate.x - vertexCoordinate.x
+                )).modulo();
+            },
+            getDistance(visorCoordinate, vertexCoordinate) {
+                return (
+                    (visorCoordinate.y - vertexCoordinate.y) ** 2 +
+                    (visorCoordinate.x - vertexCoordinate.x) ** 2
+                );
+            },
+            getRelativeAngle(previousAngle, currentAngle) {
+                const result = currentAngle.minus(previousAngle).modulo();
+
+                return result.greaterThan(Angle.pi())
+                    ? Angle.pi().minus(result)
+                    : result;
+            },
+            getType(angle, start, end) {
+                if (angle.isEqual(start)) {
+                    return 'start';
+                }
+
+                if (angle.isEqual(end)) {
+                    return 'end';
+                }
+
+                return angle.between(start, end)
+                    ? 'in'
+                    : 'out';
+            },
+            /** @returns State */
+            usePart(state, previousPart, currentPart) {
+                var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
+                var lineDirectionAsc = shiftAngle.isPositive();
+                var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle);
+                var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle);
+                console.log(
+                    currentPart.angle.getDegrees(),
+                    shiftAngle.getDegrees(),
+                    lineDirectionAsc,
+                    previousType,
+                    currentType,
+                );
+
+                if (lineDirectionAsc) {
+                    console.log('equals', state.firstPart === currentPart);
+                    state.lastPart.setNext(currentPart);
+                    console.log('add');
+                    //движемся вперед
+                } else {
+                    //движемся назад
+                }
+
+                return lineDirectionAsc
+                    ? new State(
+                        true,
+                        state.firstPart,
+                        currentPart,
+                    )
+                    : state;
+            }
         },
         computed: {
             visiblePoints() {
-                return [];
+                var state = null;
+                var previousPart = null;
+                var firstPart = null;
+                console.clear();
+
+                for (const point of this.points) {
+                    const currentPart = new Part(
+                        point,
+                        this.getAngle(this.observer, point),
+                        this.getDistance(this.observer, point),
+                    );
+
+                    if (previousPart === null) {
+                        firstPart = previousPart = currentPart;
+                        state = new State(true, previousPart, previousPart);
+                        console.log(currentPart.angle.getDegrees());
+
+                        continue;
+                    }
+
+                    state = this.usePart(state, previousPart, currentPart);
+                    previousPart = currentPart;
+                }
+
+                var result = [];
+
+                if (firstPart !== null) {
+                    state = this.usePart(state, previousPart, firstPart);
+                    var firstRoot = null;
+
+                    for (
+                        var root = state.firstPart;
+                        root !== null;
+                        root = root.getNext()
+                    ) {
+                        if (root === firstRoot) {
+                            root = null;
+                            break;
+                        }
+
+                        if (firstRoot === null) {
+                            firstRoot = root;
+                        }
+
+                        console.log('push', root);
+                        result.push(root.point);
+                    }
+                }
+
+                return result;
+
             }
         }
     });
