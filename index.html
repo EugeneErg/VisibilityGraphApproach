@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circle Manipulation</title>
+    <script src="/scripts/vue.global.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f5f7fa;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            user-select: none; /* Отключение выделения текста */
+        }
+        text {
+            font-size: 12px;
+            fill: black;
+        }
+        circle {
+            pointer-events: visiblePainted; /* Указатель взаимодействует только с кругами */
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <svg width="400" height="400" viewBox="0 0 400 400">
+        <!-- Основной круг -->
+        <circle :cx="center.x" :cy="center.y" :r="radius" stroke="black" stroke-width="2" fill="none" />
+        <!-- Полукруг -->
+        <path :d="semiCirclePath" stroke="blue" stroke-width="2" fill="none"/>
+        <circle
+            :cx="semiCircleStart.x"
+            :cy="semiCircleStart.y"
+            r="5"
+            fill="blue"
+            @mousedown="startDrag('semi-circle-start', $event)"
+            style="cursor: pointer"
+        />
+        <text :x="semiCircleStart.x + 10" :y="semiCircleStart.y">A</text>
+        <circle
+            :cx="semiCircleEnd.x"
+            :cy="semiCircleEnd.y"
+            r="5"
+            fill="blue"
+            @mousedown="startDrag('semi-circle-end', $event)"
+            style="cursor: pointer"
+        />
+        <text :x="semiCircleEnd.x + 10" :y="semiCircleEnd.y">B</text>
+        <!-- Линия -->
+        <line
+            :x1="lineStart.x"
+            :y1="lineStart.y"
+            :x2="lineEnd.x"
+            :y2="lineEnd.y"
+            :stroke="lineColor"
+            stroke-width="2"
+        />
+        <circle
+            :cx="lineStart.x"
+            :cy="lineStart.y"
+            r="5"
+            :fill="lineColor"
+            @mousedown="startDrag('line-start', $event)"
+            style="cursor: pointer"
+        />
+        <text :x="lineStart.x + 10" :y="lineStart.y">A</text>
+        <circle
+            :cx="lineEnd.x"
+            :cy="lineEnd.y"
+            r="5"
+            :fill="lineColor"
+            @mousedown="startDrag('line-end', $event)"
+            style="cursor: pointer"
+        />
+        <text :x="lineEnd.x + 10" :y="lineEnd.y">B</text>
+        <circle :cx="center.x" :cy="center.y" r="5" fill="black"/>
+    </svg>
+    <p>{{ intersect }}</p>
+</div>
+<script>
+    const { createApp } = Vue;
+
+    createApp({
+        data() {
+            return {
+                radius: 100,
+                center: { x: 200, y: 200 },
+                angleStart: Math.random() * Math.PI * 2,
+                angleEnd: Math.random() * Math.PI * 2,
+                lineStartAngle: Math.random() * Math.PI * 2,
+                lineEndAngle: Math.random() * Math.PI * 2,
+                dragging: null,
+            };
+        },
+        computed: {
+            semiCircleStart() {
+                return this.pointOnCircle(this.angleStart);
+            },
+            semiCircleEnd() {
+                return this.pointOnCircle(this.angleEnd);
+            },
+            lineStart() {
+                return this.pointOnCircle(this.lineStartAngle);
+            },
+            lineEnd() {
+                return this.pointOnCircle(this.lineEndAngle);
+            },
+            semiCirclePath() {
+                const start = this.semiCircleStart;
+                const end = this.semiCircleEnd;
+                const deltaAngle = (this.angleEnd - this.angleStart + Math.PI * 2) % (Math.PI * 2);
+                const largeArcFlag = deltaAngle > Math.PI ? 1 : 0;
+
+                return `M ${start.x} ${start.y} A ${this.radius} ${this.radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`;
+            },
+            intersect() {
+                if (
+                    this.equal(this.angleStart, this.lineStartAngle)
+                    && this.equal(this.angleEnd, this.lineEndAngle)
+                ) {
+                    return 'Линия и дуга совпадают';
+                }
+
+                if (
+                    this.equal(this.angleStart, this.lineEndAngle)
+                    && this.equal(this.angleEnd, this.lineStartAngle)
+                ) {
+                    return 'Линия и дуга образуют круг';
+                }
+
+                if (this.equal(this.angleStart, this.lineStartAngle)) {
+                    return this.between(this.lineStartAngle, this.angleEnd, this.lineEndAngle)
+                        ? 'Линия начинается вместе с дугой, но она длиннее'
+                        : 'Линия начинается вместе с дугой, но она короче';
+                }
+
+                if (this.equal(this.angleEnd, this.lineEndAngle)) {
+                    return this.between(this.lineStartAngle, this.angleStart, this.lineEndAngle)
+                        ? 'Линия заканчивается вместе с дугой, но она длиннее'
+                        : 'Линия заканчивается вместе с дугой, но она короче';
+                }
+
+                if (this.equal(this.angleEnd, this.lineStartAngle)) {
+                    return this.between(this.lineStartAngle, this.angleStart, this.lineEndAngle)
+                        ? 'Линия начинается где заканчивается дуга, и заканчивается внутри неё'
+                        : 'Линия начинается где заканчивается дуга, и заканчивается вне её';
+                }
+
+                if (this.equal(this.angleStart, this.lineEndAngle)) {
+                    return this.between(this.lineEndAngle, this.angleEnd, this.lineStartAngle)
+                        ? 'Линия начинается вне дуги и заканчивается где дуга начинается'
+                        : 'Линия начинается внутри дуги и заканчивается где дуга начинается';
+                }
+
+                if (
+                    this.between(this.angleStart, this.lineStartAngle, this.angleEnd)
+                    && this.between(this.angleStart, this.lineEndAngle, this.angleEnd)
+                ) {
+                    return 'Линия находится внутри дуги';
+                }
+
+                if (
+                    this.between(this.angleEnd, this.lineStartAngle, this.angleStart)
+                    && this.between(this.angleEnd, this.lineEndAngle, this.angleStart)
+                ) {
+                    return 'Линия не пересекается с дугой';
+                }
+
+                return this.between(this.lineStartAngle, this.angleStart, this.lineEndAngle)
+                    ? 'Линия заканчивается внутри дуги, а начинается снаружи'
+                    : 'Линия начинается внутри дуги, а заканчивается снаружи';
+
+                return 'test ' + this.getAngle(this.angleStart)
+                    + "\r\n" + this.getAngle(this.angleEnd)
+                    + "\r\n" + this.getAngle(this.lineStartAngle)
+                    + "\r\n" + this.getAngle(this.lineEndAngle);
+            },
+            lineColor() {
+                return this.modulo(this.lineStartAngle - this.lineEndAngle) > Math.PI
+                    ? 'blue'
+                    : 'red';
+            },
+        },
+        methods: {
+            pointOnCircle(angle) {
+                return {
+                    x: this.center.x + this.radius * Math.cos(angle),
+                    y: this.center.y + this.radius * Math.sin(angle),
+                };
+            },
+            angleFromPoint(x, y) {
+                return Math.atan2(y - this.center.y, x - this.center.x);
+            },
+            startDrag(part, event) {
+                event.preventDefault();
+                this.dragging = part;
+                document.addEventListener('mousemove', this.onMouseMove);
+                document.addEventListener('mouseup', this.onMouseUp);
+            },
+            onMouseMove(event) {
+                if (!this.dragging) {
+                    return;
+                }
+
+                // Координаты мыши относительно центра SVG
+                const svgRect = document.getElementById('app').getBoundingClientRect();
+                const x = event.clientX - svgRect.left - this.center.x;
+                const y = event.clientY - svgRect.top - this.center.y;
+                const angle = this.modulo(this.angleFromPoint(x + this.center.x, y + this.center.y));
+
+                if (this.dragging === 'semi-circle-start') {
+                    this.angleStart = angle;
+                } else if (this.dragging === 'semi-circle-end') {
+                    this.angleEnd = angle;
+                } else if (this.dragging === 'line-start') {
+                    this.lineStartAngle = angle;
+                } else if (this.dragging === 'line-end') {
+                    this.lineEndAngle = angle;
+                }
+            },
+            onMouseUp() {
+                this.dragging = null;
+                document.removeEventListener('mousemove', this.onMouseMove);
+                document.removeEventListener('mouseup', this.onMouseUp);
+            },
+            modulo (a) {
+                return a < 0
+                    ? a + Math.PI * 2
+                    : a;
+            },
+            equal(a, b) {
+                return Math.abs(a - b) < 0.03
+                    || Math.abs(a - b - Math.PI * 2) < 0.03
+                    || Math.abs(a - b + Math.PI * 2) < 0.03;
+            },
+            between(a, b, c) {
+                return a < c
+                    ? b > a && b < c
+                    : b > a || b < c;
+            },
+            getAngle(angle) {
+                return (angle * 180 / Math.PI).toFixed(0);
+            }
+        },
+    }).mount('#app');
+</script>
+</body>
+</html>
