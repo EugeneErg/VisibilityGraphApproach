@@ -58,10 +58,10 @@
              @mousemove="drag($event)"
              @mouseup="endDrag"
              @wheel="onScroll">
-            <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,0,255,0.1)"/>
+            <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,255,0,0.5)"/>
             <line v-for="line in lines"
                   :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
-                  stroke="blue" stroke-width="2" />
+                  stroke="rgba(0,0,255,0.5)" stroke-width="2" stroke-dasharray="5, 5"/>
             <circle v-for="(point, index) in points"
                     :cx="point.x" :cy="point.y" r="10"
                     fill="blue" @mousedown.stop="selectPoint(index, $event)" />
@@ -337,7 +337,7 @@
                 } else if (this.isPanning) {
                     const dx = event.clientX - this.panStart.clientX;
                     const dy = event.clientY - this.panStart.clientY;
-                    const [x, y, width, height] = this.viewBox.split(' ').map(Number);
+                    const [, , width, height] = this.viewBox.split(' ').map(Number);
                     this.viewBox = `${this.panStart.x - dx} ${this.panStart.y - dy} ${width} ${height}`;
                 }
             },
@@ -434,6 +434,48 @@
 
                 if (lineDirectionAsc) {
                     //движемся вперед
+                    if (previousType === 'end' && currentType === 'out') {
+                        state.lastPart.setNext(currentPart, true);
+
+                        return new State(
+                            state.lastPart.point.isEqual(previousPart.point),
+                            state.firstPart,
+                            currentPart,
+                        );
+                    }
+
+                    if (previousType === 'end' && currentType === 'end') {
+                        if (currentPart.distance > state.lastPart.distance) {
+                            return new State(
+                                false,
+                                state.firstPart,
+                                state.lastPart,
+                            );
+                        }
+
+                        state.lastPart.setNext(currentPart, true);
+
+                        return new State(
+                            state.lastPart.point.isEqual(previousPart.point),
+                            state.firstPart,
+                            currentPart,
+                        );
+                    }
+
+                    if (previousType === 'end' && currentType === 'start') {
+                        //хоть линия и соединяет первый и последний угол видимой кривой, но она может пересекать кривую
+                        //необходима доп проверка.
+
+                        state.lastPart.setNext(currentPart, true);
+
+                        return new State(
+                            state.lastPart.point.isEqual(previousPart.point),
+                            state.firstPart,
+                            currentPart,
+                        );
+                    }
+
+
                     console.log('equals', state.firstPart === currentPart);
                     state.lastPart.setNext(currentPart);
                     console.log('add');
@@ -466,7 +508,33 @@
                         currentPart,
                     )
                     : state;
-            }
+            },
+            findIntersectBack(previousPart, currentPart, state) {
+                var currentDistanceGreaterThanVisible = undefined;
+
+                if (state.lastPart.angle.isEqual(previousPart)) {
+                    currentDistanceGreaterThanVisible = state.lastPart.distance === previousPart.distance
+                        ? null
+                        : state.lastPart.distance < previousPart.distance;
+                }
+
+                for (
+                    var part = state.lastPart;
+                    part !== null;
+                    part = part.previous
+                ) {
+                    if (currentDistanceGreaterThanVisible === undefined) {
+
+                    }
+
+
+                    //previousPart.angle.between(state.lastPart.angle, state.firstPart.angle)
+                }
+
+
+                this.observer;
+
+            },
         },
         computed: {
             visiblePoints() {
