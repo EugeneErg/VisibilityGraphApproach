@@ -53,25 +53,30 @@
         <button @click="setTool('move')">Move</button>
     </div>
     <div class="svg-container">
-        <svg :view-box.camel="viewBox" xmlns="http://www.w3.org/2000/svg"
+        <svg :view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height" xmlns="http://www.w3.org/2000/svg"
              @mousedown="startDrag($event)"
              @mousemove="drag($event)"
              @mouseup="endDrag"
              @wheel="onScroll">
+            <!-- Сетка -->
+            <defs>
+                <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse" patternTransform="translate(0,0)">
+                    <rect width="50" height="50" fill="none" stroke="#ccc" stroke-width="0.5"/>
+                    <line x1="0" y1="0" x2="50" y2="50" stroke="#ccc" stroke-width="0.5"/>
+                    <line x1="0" y1="50" x2="50" y2="0" stroke="#ccc" stroke-width="0.5"/>
+                </pattern>
+            </defs>
+            <rect :x="viewBoxX" :y="viewBoxY" width="100%" height="100%" fill="url(#grid)"/>
+            <!-- Полигон, точки, линии -->
             <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,255,0,0.5)"/>
-            <line v-for="line in lines"
-                  :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
+            <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
                   stroke="rgba(0,0,255,0.5)" stroke-width="2" stroke-dasharray="5, 5"/>
-            <circle v-for="(point, index) in points"
-                    :cx="point.x" :cy="point.y" r="10"
-                    fill="blue" @mousedown.stop="selectPoint(index, $event)" />
-            <text v-for="(point, index) in points"
-                  :x="point.x + 12" :y="point.y + 4"
-                  font-size="12" fill="black">
+            <circle v-for="(point, index) in points" :cx="point.x" :cy="point.y" r="10" fill="blue"
+                    @mousedown.stop="selectPoint(index, $event)" />
+            <text v-for="(point, index) in points" :x="point.x + 12" :y="point.y + 4" font-size="12" fill="black">
                 {{ index + 1 }}
             </text>
-            <circle :cx="observer.x" :cy="observer.y" r="10"
-                    fill="black" @mousedown.stop="startObserverDrag($event)" />
+            <circle :cx="observer.x" :cy="observer.y" r="10" fill="black" @mousedown.stop="startObserverDrag($event)" />
         </svg>
     </div>
 </div>
@@ -284,9 +289,8 @@
                 draggingObserver: false,
                 offsetX: 0,
                 offsetY: 0,
-                viewBox: '0 0 800 600',
-                isPanning: false,
-                panStart: { x: 0, y: 0 }
+                viewBox: {x: 0, y: 0, weight: 800, height: 600},
+                gridSize: 50, // Размер ячейки сетки
             };
         },
         methods: {
@@ -300,8 +304,7 @@
                     this.updateLines();
                 } else if (event.target.tagName !== 'circle') {
                     this.isPanning = true;
-                    const [x, y] = this.viewBox.split(' ').map(Number);
-                    this.panStart = { x, y, clientX: event.clientX, clientY: event.clientY };
+                    this.panStart = this.getSVGCoordinates(event);
                 }
             },
             getSVGCoordinates(event) {
@@ -335,10 +338,13 @@
                     this.observer.x = coords.x + this.offsetX;
                     this.observer.y = coords.y + this.offsetY;
                 } else if (this.isPanning) {
-                    const dx = event.clientX - this.panStart.clientX;
-                    const dy = event.clientY - this.panStart.clientY;
-                    const [, , width, height] = this.viewBox.split(' ').map(Number);
-                    this.viewBox = `${this.panStart.x - dx} ${this.panStart.y - dy} ${width} ${height}`;
+                    const coords = this.getSVGCoordinates(event);
+                    this.viewBox = {
+                        x: this.viewBox.x + (this.panStart.x - coords.x),
+                        y: this.viewBox.y + (this.panStart.y - coords.y),
+                        weight: this.viewBox.weight,
+                        height: this.viewBox.height,
+                    };
                 }
             },
             endDrag() {
@@ -365,7 +371,7 @@
                 }
             },
             onScroll(event) {
-                const [x, y, width, height] = this.viewBox.split(' ').map(Number);
+                const [x, y, width, height] = [this.viewBox.x, this.viewBox.y, this.viewBox.weight, this.viewBox.height];
                 const scaleFactor = 0.1;
                 const delta = event.deltaY > 0 ? 1 + scaleFactor : 1 - scaleFactor;
                 const newWidth = width * delta;
@@ -381,7 +387,7 @@
                 const offsetX = (transformed.x - x) * (1 - delta);
                 const offsetY = (transformed.y - y) * (1 - delta);
 
-                this.viewBox = `${x + offsetX} ${y + offsetY} ${newWidth} ${newHeight}`;
+                this.viewBox = {x: x + offsetX, y: y + offsetY, weight: newWidth, height: newHeight};
             },
             getAngle(visorCoordinate, vertexCoordinate) {
                 if (visorCoordinate.isEqual(vertexCoordinate)) {
@@ -424,13 +430,13 @@
                 var lineDirectionAsc = shiftAngle.isPositive();
                 var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle);
                 var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle);
-                console.log(
+                /*console.log(
                     currentPart.angle.getDegrees(),
                     shiftAngle.getDegrees(),
                     lineDirectionAsc,
                     previousType,
                     currentType,
-                );
+                );*/
 
                 if (lineDirectionAsc) {
                     //движемся вперед
@@ -476,9 +482,9 @@
                     }
 
 
-                    console.log('equals', state.firstPart === currentPart);
+                    //console.log('equals', state.firstPart === currentPart);
                     state.lastPart.setNext(currentPart);
-                    console.log('add');
+                    //console.log('add');
                 } else {
                     //движемся назад
                     for (
@@ -537,11 +543,49 @@
             },
         },
         computed: {
+            viewBoxX() {
+                return this.viewBox.x;
+            },
+            viewBoxY() {
+                return this.viewBox.y;
+            },
+            viewBoxWidth() {
+                return this.viewBox.weight;
+            },
+            viewBoxHeight() {
+                return this.viewBox.height;
+            },
+            // Горизонтальные и вертикальные линии сетки
+            gridLinesX() {
+                const startX = Math.floor(this.viewBoxX / this.gridSize) * this.gridSize;
+                const endX = this.viewBoxX + this.viewBoxWidth;
+                return Array.from({ length: Math.ceil((endX - startX) / this.gridSize) + 1 },
+                    (_, i) => startX + i * this.gridSize);
+            },
+            gridLinesY() {
+                const startY = Math.floor(this.viewBoxY / this.gridSize) * this.gridSize;
+                const endY = this.viewBoxY + this.viewBoxHeight;
+                return Array.from({ length: Math.ceil((endY - startY) / this.gridSize) + 1 },
+                    (_, i) => startY + i * this.gridSize);
+            },
+            // Диагональные линии
+            diagonalLines() {
+                const lines = [];
+                const startX = this.viewBoxX - this.viewBoxHeight;
+                const endX = this.viewBoxX + this.viewBoxWidth + this.viewBoxHeight;
+
+                for (let x = startX; x <= endX; x += this.gridSize) {
+                    lines.push({ x1: x, y1: this.viewBoxY, x2: x - this.viewBoxHeight, y2: this.viewBoxY + this.viewBoxHeight });
+                    lines.push({ x1: x, y1: this.viewBoxY + this.viewBoxHeight, x2: x - this.viewBoxHeight, y2: this.viewBoxY });
+                }
+
+                return lines;
+            },
             visiblePoints() {
                 var state = null;
                 var previousPart = null;
                 var firstPart = null;
-                console.clear();
+                //console.clear();
 
                 for (const point of this.points) {
                     const currentPart = new Part(
@@ -553,7 +597,7 @@
                     if (previousPart === null) {
                         firstPart = previousPart = currentPart;
                         state = new State(true, previousPart, previousPart);
-                        console.log(currentPart.angle.getDegrees());
+                        //console.log(currentPart.angle.getDegrees());
 
                         continue;
                     }
@@ -582,7 +626,7 @@
                             firstRoot = root;
                         }
 
-                        console.log('push', root);
+                        //console.log('push', root);
                         result.push(root.point);
                     }
                 }
