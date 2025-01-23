@@ -291,6 +291,9 @@
                 offsetY: 0,
                 viewBox: {x: 0, y: 0, weight: 800, height: 600},
                 gridSize: 50, // Размер ячейки сетки
+                isPanning: false,
+                isPainting: false,
+                panStart: null,
             };
         },
         methods: {
@@ -300,7 +303,11 @@
             startDrag(event) {
                 const coords = this.getSVGCoordinates(event);
 
-                if (this.tool === 'add' || this.tool === 'paint') {
+                if (this.tool === 'paint') {
+                    this.points.push(coords);
+                    this.panStart = coords;
+                    this.isPainting = true;
+                } else if (this.tool === 'add') {
                     this.points.push(coords);
                 } else if (event.target.tagName !== 'circle') {
                     this.isPanning = true;
@@ -352,12 +359,18 @@
                         weight: this.viewBox.weight,
                         height: this.viewBox.height,
                     };
+                } else if (this.isPainting) {
+                    if (this.getDistance(this.panStart, coords) > this.gridSize * this.gridSize) {
+                        this.points.push(coords);
+                        this.panStart = coords;
+                    }
                 }
             },
             endDrag() {
                 this.draggingPoint = null;
                 this.draggingObserver = false;
                 this.isPanning = false;
+                this.isPainting = false;
             },
             startObserverDrag(event) {
                 const coords = this.getSVGCoordinates(event);
