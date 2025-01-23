@@ -51,6 +51,7 @@
         <button @click="setTool('add')">Add</button>
         <button @click="setTool('remove')">Remove</button>
         <button @click="setTool('move')">Move</button>
+        <button @click="setTool('paint')">Paint</button>
     </div>
     <div class="svg-container">
         <svg :view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height" xmlns="http://www.w3.org/2000/svg"
@@ -60,10 +61,10 @@
              @wheel="onScroll">
             <!-- Сетка -->
             <defs>
-                <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse" patternTransform="translate(0,0)">
-                    <rect width="50" height="50" fill="none" stroke="#ccc" stroke-width="0.5"/>
-                    <line x1="0" y1="0" x2="50" y2="50" stroke="#ccc" stroke-width="0.5"/>
-                    <line x1="0" y1="50" x2="50" y2="0" stroke="#ccc" stroke-width="0.5"/>
+                <pattern id="grid" :width="gridSize" :height="gridSize" patternUnits="userSpaceOnUse" patternTransform="translate(0,0)">
+                    <rect :width="gridSize" :height="gridSize" fill="none" stroke="#ccc" stroke-width="0.5"/>
+                    <line x1="0" y1="0" :x2="gridSize" :y2="gridSize" stroke="#ccc" stroke-width="0.5"/>
+                    <line x1="0" :y1="gridSize" :x2="gridSize" y2="0" stroke="#ccc" stroke-width="0.5"/>
                 </pattern>
             </defs>
             <rect :x="viewBoxX" :y="viewBoxY" width="100%" height="100%" fill="url(#grid)"/>
@@ -283,7 +284,6 @@
             return {
                 tool: 'add',
                 points: [],
-                lines: [],
                 observer: new Point(100, 100),
                 draggingPoint: null,
                 draggingObserver: false,
@@ -298,13 +298,13 @@
                 this.tool = tool;
             },
             startDrag(event) {
-                if (this.tool === 'add') {
-                    const coords = this.getSVGCoordinates(event);
+                const coords = this.getSVGCoordinates(event);
+
+                if (this.tool === 'add' || this.tool === 'paint') {
                     this.points.push(coords);
-                    this.updateLines();
                 } else if (event.target.tagName !== 'circle') {
                     this.isPanning = true;
-                    this.panStart = this.getSVGCoordinates(event);
+                    this.panStart = coords;
                 }
             },
             getSVGCoordinates(event) {
@@ -319,7 +319,6 @@
             selectPoint(index, event) {
                 if (this.tool === 'remove') {
                     this.points.splice(index, 1);
-                    this.updateLines();
                 } else if (this.tool === 'move') {
                     this.draggingPoint = index;
                     const coords = this.getSVGCoordinates(event);
@@ -327,18 +326,26 @@
                     this.offsetY = this.points[index].y - coords.y;
                 }
             },
+            adjustToNearest(value) {
+                if (
+                    Math.abs(value % this.gridSize) <= 10
+                    || Math.abs(value % this.gridSize) >= this.gridSize - 10
+                ) {
+                    return Math.round(value / this.gridSize) * this.gridSize;
+                }
+
+                return value;
+            },
             drag(event) {
+                const coords = this.getSVGCoordinates(event);
+
                 if (this.draggingPoint !== null) {
-                    const coords = this.getSVGCoordinates(event);
-                    this.points[this.draggingPoint].x = coords.x + this.offsetX;
-                    this.points[this.draggingPoint].y = coords.y + this.offsetY;
-                    this.updateLines();
+                    this.points[this.draggingPoint].x = this.adjustToNearest(coords.x + this.offsetX);
+                    this.points[this.draggingPoint].y = this.adjustToNearest(coords.y + this.offsetY);
                 } else if (this.draggingObserver) {
-                    const coords = this.getSVGCoordinates(event);
-                    this.observer.x = coords.x + this.offsetX;
-                    this.observer.y = coords.y + this.offsetY;
+                    this.observer.x = this.adjustToNearest(coords.x + this.offsetX);
+                    this.observer.y = this.adjustToNearest(coords.y + this.offsetY);
                 } else if (this.isPanning) {
-                    const coords = this.getSVGCoordinates(event);
                     this.viewBox = {
                         x: this.viewBox.x + (this.panStart.x - coords.x),
                         y: this.viewBox.y + (this.panStart.y - coords.y),
@@ -357,18 +364,6 @@
                 this.offsetX = this.observer.x - coords.x;
                 this.offsetY = this.observer.y - coords.y;
                 this.draggingObserver = true;
-            },
-            updateLines() {
-                this.lines = [];
-                for (let i = 0; i < this.points.length; i++) {
-                    const nextIndex = (i + 1) % this.points.length;
-                    this.lines.push({
-                        x1: this.points[i].x,
-                        y1: this.points[i].y,
-                        x2: this.points[nextIndex].x,
-                        y2: this.points[nextIndex].y
-                    });
-                }
             },
             onScroll(event) {
                 const [x, y, width, height] = [this.viewBox.x, this.viewBox.y, this.viewBox.weight, this.viewBox.height];
@@ -411,7 +406,7 @@
                     ? Angle.pi().minus(result)
                     : result;
             },
-            getType(angle, start, end) {
+            getType(angle, start, end, level) {
                 if (angle.isEqual(start)) {
                     return 'start';
                 }
@@ -420,28 +415,36 @@
                     return 'end';
                 }
 
+                if (start.isEqual(end) && level === 0) {
+                    return 'out';
+                }
+
+                console.log(angle, 'between', start, 'and', end, 'is', angle.between(start, end));
+
                 return angle.between(start, end)
                     ? 'in'
                     : 'out';
             },
             /** @returns State */
-            usePart(state, previousPart, currentPart) {
+            usePart(state, previousPart, currentPart, number, level) {//level - количество оборотов вокруг оси
                 var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
                 var lineDirectionAsc = shiftAngle.isPositive();
-                var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle);
-                var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle);
-                /*console.log(
+                var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, level);
+                var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle, level);
+                console.log(
                     currentPart.angle.getDegrees(),
                     shiftAngle.getDegrees(),
                     lineDirectionAsc,
+                    number - -1,
                     previousType,
                     currentType,
-                );*/
+                );
 
                 if (lineDirectionAsc) {
                     //движемся вперед
                     if (previousType === 'end' && currentType === 'out') {
                         state.lastPart.setNext(currentPart, true);
+                        console.log('add point');
 
                         return new State(
                             state.lastPart.point.isEqual(previousPart.point),
@@ -452,6 +455,8 @@
 
                     if (previousType === 'end' && currentType === 'end') {
                         if (currentPart.distance > state.lastPart.distance) {
+                            console.log('nothing');
+
                             return new State(
                                 false,
                                 state.firstPart,
@@ -459,6 +464,7 @@
                             );
                         }
 
+                        console.log('add point');
                         state.lastPart.setNext(currentPart, true);
 
                         return new State(
@@ -471,7 +477,7 @@
                     if (previousType === 'end' && currentType === 'start') {
                         //хоть линия и соединяет первый и последний угол видимой кривой, но она может пересекать кривую
                         //необходима доп проверка.
-
+                        console.log('add point');
                         state.lastPart.setNext(currentPart, true);
 
                         return new State(
@@ -481,13 +487,14 @@
                         );
                     }
 
+                    if (previousType === 'end' && currentType === 'in') {
 
-                    //console.log('equals', state.firstPart === currentPart);
+                    }
+
                     state.lastPart.setNext(currentPart);
-                    //console.log('add');
                 } else {
                     //движемся назад
-                    for (
+                    /*for (
                         var root = state.lastPart;
                         root !== null && root.angle.greaterThan(currentPart.angle);
                         root = root.previous
@@ -504,16 +511,19 @@
                         true,
                         state.firstPart,
                         currentPart,
-                    );
+                    );*/
                 }
 
-                return lineDirectionAsc
+                /*return lineDirectionAsc
                     ? new State(
                         true,
                         state.firstPart,
                         currentPart,
                     )
-                    : state;
+                    : state;*/
+                console.log('new keys');
+
+                return state;
             },
             findIntersectBack(previousPart, currentPart, state) {
                 var currentDistanceGreaterThanVisible = undefined;
@@ -543,6 +553,21 @@
             },
         },
         computed: {
+            lines() {
+                const lines = [];
+
+                for (let i = 0; i < this.points.length; i++) {
+                    const nextIndex = (i + 1) % this.points.length;
+                    lines.push({
+                        x1: this.points[i].x,
+                        y1: this.points[i].y,
+                        x2: this.points[nextIndex].x,
+                        y2: this.points[nextIndex].y
+                    });
+                }
+
+                return lines;
+            },
             viewBoxX() {
                 return this.viewBox.x;
             },
@@ -585,9 +610,13 @@
                 var state = null;
                 var previousPart = null;
                 var firstPart = null;
-                //console.clear();
+                var level = 0;
+                var startAngle = null;
+                var directionAsc = true;
+                console.clear();
 
-                for (const point of this.points) {
+                for (const number in this.points) {
+                    const point = this.points[number];
                     const currentPart = new Part(
                         point,
                         this.getAngle(this.observer, point),
@@ -595,21 +624,33 @@
                     );
 
                     if (previousPart === null) {
+                        startAngle = currentPart.angle;
                         firstPart = previousPart = currentPart;
                         state = new State(true, previousPart, previousPart);
-                        //console.log(currentPart.angle.getDegrees());
+                        console.log(currentPart.angle.getDegrees());
 
                         continue;
                     }
+                    var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
+                    var newDirectionAsc = shiftAngle.isPositive();
 
-                    state = this.usePart(state, previousPart, currentPart);
+                    /*level += this.shiftLevel(
+                        startAngle,
+                        startAngle,
+                        directionAsc,
+                        newDirectionAsc,
+                        previousPart.angle,
+                        currentPart.angle,
+                    );*/
+
+                    state = this.usePart(state, previousPart, currentPart, number, level);
                     previousPart = currentPart;
                 }
 
                 var result = [];
 
                 if (firstPart !== null) {
-                    state = this.usePart(state, previousPart, firstPart);
+                    state = this.usePart(state, previousPart, firstPart, 0, 0);
                     var firstRoot = null;
 
                     for (
@@ -626,7 +667,7 @@
                             firstRoot = root;
                         }
 
-                        //console.log('push', root);
+                        console.log('push', root);
                         result.push(root.point);
                     }
                 }
