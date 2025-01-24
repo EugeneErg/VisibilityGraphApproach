@@ -225,6 +225,10 @@
             return this.value > 0;
         }
 
+        isNegative() {
+            return this.value < 0;
+        }
+
         between(from, to) {
             return from.lessThan(to)
                 ? this.greaterThan(from) && this.lessThan(to)
@@ -419,39 +423,61 @@
                     ? Angle.pi().minus(result)
                     : result;
             },
-            getType(angle, start, end, level) {
-                if (angle.isEqual(start)) {
-                    return 'start';
+            shiftLevel(
+                startAngle,
+                previousDirectionAsc,
+                currentDirectionAsc,
+                previousPartAngle,
+                currentPartAngle,
+            ) {
+                if (currentPartAngle.isEqual(previousPartAngle) || currentPartAngle.isEqual(startAngle)) {
+                    return 0;
                 }
 
+                if (previousPartAngle.isEqual(startAngle)) {
+                    if (previousDirectionAsc === currentDirectionAsc) {
+                        return currentDirectionAsc ? 1 : -1;
+                    }
+
+                    return 0;
+                }
+
+                if (startAngle.between(previousPartAngle, currentPartAngle) === currentDirectionAsc) {
+                    return currentDirectionAsc ? 1 : -1;
+                }
+
+                return 0;
+            },
+            getType(angle, start, end, level) {
                 if (angle.isEqual(end)) {
                     return 'end';
                 }
 
-                if (start.isEqual(end) && level === 0) {
-                    return 'out';
+                if (angle.isEqual(start)) {
+                    return 'start';
                 }
 
-                console.log(angle, 'between', start, 'and', end, 'is', angle.between(start, end));
+                if (start.isEqual(end)) {
+                    return level === 1 ? 'out' : 'in';
+                }
 
-                return angle.between(start, end)
-                    ? 'in'
-                    : 'out';
+                return angle.between(start, end) ? 'in' : 'out';
             },
             /** @returns State */
             usePart(state, previousPart, currentPart, number, level) {//level - количество оборотов вокруг оси
                 var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
-                var lineDirectionAsc = shiftAngle.isPositive();
+                var lineDirectionAsc = !shiftAngle.isNegative();
                 var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, level);
                 var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle, level);
-                console.log(
-                    currentPart.angle.getDegrees(),
-                    shiftAngle.getDegrees(),
-                    lineDirectionAsc,
-                    number - -1,
-                    previousType,
-                    currentType,
-                );
+                console.log({
+                    currentAngle: currentPart.angle.getDegrees(),
+                    shiftAngle: shiftAngle.getDegrees(),
+                    currentDirectionAsc: lineDirectionAsc,
+                    number: number - -1,
+                    previousType: previousType,
+                    currentType: currentType,
+                    level: level,
+                });
 
                 if (lineDirectionAsc) {
                     //движемся вперед
@@ -534,7 +560,7 @@
                         currentPart,
                     )
                     : state;*/
-                console.log('new keys');
+                console.log('new case');
 
                 return state;
             },
@@ -640,21 +666,20 @@
                         startAngle = currentPart.angle;
                         firstPart = previousPart = currentPart;
                         state = new State(true, previousPart, previousPart);
-                        console.log(currentPart.angle.getDegrees());
+                        //console.log(currentPart.angle.getDegrees());
 
                         continue;
                     }
                     var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
-                    var newDirectionAsc = shiftAngle.isPositive();
+                    var newDirectionAsc = !shiftAngle.isNegative();
 
-                    /*level += this.shiftLevel(
-                        startAngle,
+                    level += this.shiftLevel(
                         startAngle,
                         directionAsc,
                         newDirectionAsc,
                         previousPart.angle,
                         currentPart.angle,
-                    );*/
+                    );
 
                     state = this.usePart(state, previousPart, currentPart, number, level);
                     previousPart = currentPart;
@@ -680,7 +705,7 @@
                             firstRoot = root;
                         }
 
-                        console.log('push', root);
+                        //console.log('push', root);
                         result.push(root.point);
                     }
                 }
