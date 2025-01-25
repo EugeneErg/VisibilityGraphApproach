@@ -545,36 +545,6 @@
                     ? Angle.pi().minus(result)
                     : result;
             },
-            shiftLevel(
-                startAngle,
-                previousDirectionAsc,
-                currentDirectionAsc,
-                previousPartAngle,
-                currentPartAngle,
-            ) {
-                return 0;
-                console.log({
-                    startAngle: startAngle.getDegrees(),
-                    previousDirectionAsc: previousDirectionAsc,
-                    currentDirectionAsc: currentDirectionAsc,
-                    previousPartAngle: previousPartAngle.getDegrees(),
-                    currentPartAngle: currentPartAngle.getDegrees(),
-                })
-
-                if (currentPartAngle.isEqual(startAngle)) {
-                    const match = {true: 1, false: -1, null: 0};
-
-                    console.log('currentPartAngle.isEqual(startAngle)', match[currentDirectionAsc])
-
-                    return match[currentDirectionAsc];
-                }
-
-                if (startAngle.between(previousPartAngle, currentPartAngle) === currentDirectionAsc) {
-                    return currentDirectionAsc ? 1 : -1;
-                }
-
-                return 0;
-            },
             getType(angle, start, end, empty) {
                 if (angle.isEqual(end)) {
                     return 'end';
@@ -591,7 +561,7 @@
                 return angle.between(start, end) ? 'in' : 'out';
             },
             /** @returns State */
-            usePart(state, previousPart, currentPart, number, level) {//level - количество оборотов вокруг оси
+            usePart(state, previousPart, currentPart, number) {
                 var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
                 var lineDirectionAsc = !shiftAngle.isNegative();
                 var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, state.firstPart === state.lastPart);
@@ -612,7 +582,6 @@
                         previous: previousType,
                         current: currentType,
                     },
-                    //level: level,
                 });
 
                 if (lineDirectionAsc) {
@@ -794,7 +763,6 @@
                 var state = null;
                 var previousPart = null;
                 var firstPart = null;
-                var level = 0;
                 var startAngle = null;
                 var directionAsc = null;
                 console.clear();
@@ -820,15 +788,7 @@
                         ? null
                         : shiftAngle.isPositive();
 
-                    level += this.shiftLevel(
-                        startAngle,
-                        directionAsc,
-                        newDirectionAsc,
-                        previousPart.angle,
-                        currentPart.angle,
-                    );
-
-                    state = this.usePart(state, previousPart, currentPart, number, level);
+                    state = this.usePart(state, previousPart, currentPart, number);
                     previousPart = currentPart;
                     directionAsc = newDirectionAsc;
                 }
@@ -836,7 +796,7 @@
                 var result = [];
 
                 if (firstPart !== null) {
-                    state = this.usePart(state, previousPart, firstPart, 0, 1);
+                    state = this.usePart(state, previousPart, firstPart, 0);
                     var firstRoot = null;
 
                     for (
