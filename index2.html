@@ -59,7 +59,6 @@
         <button @click="loadPoints">Load</button>
         <button @click="saveSvg">Save svg</button>
         <button @click="clear">Clear</button>
-        {{ sizeX }} x {{ sizeY }}
     </div>
     <div class="svg-container">
         <svg ref="svg":view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height"
@@ -333,8 +332,6 @@
                 isPanning: false,
                 isPainting: false,
                 panStart: null,
-                sizeX: 0,
-                sizeY: 0,
             };
         },
         watch: {
