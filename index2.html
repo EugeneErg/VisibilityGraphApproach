@@ -61,12 +61,10 @@
         <button @click="clear">Clear</button>
     </div>
     <div class="svg-container">
-        <svg ref="svg":view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height"
+        <svg ref="svg" :view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height"
              xmlns="http://www.w3.org/2000/svg"
              preserveAspectRatio="xMidYMid slice"
              @mousedown="startDrag($event)"
-             @mousemove="drag($event)"
-             @mouseup="endDrag"
              @wheel="onScroll">
             <!-- Сетка -->
             <defs>
@@ -83,8 +81,6 @@
                   stroke="rgba(0,255,0,0.5)" stroke-width="2" stroke-dasharray="5, 10" vector-effect="non-scaling-stroke"/>
             <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
                   stroke="rgba(0,0,255,0.5)" stroke-width="2" stroke-dasharray="5, 5" vector-effect="non-scaling-stroke"/>
-            <!--circle v-for="(point, index) in points" :cx="point.x" :cy="point.y" r=".001" stroke="blue" stroke-width="20" fill="blue"
-                    @mousedown.stop="selectPoint(index, $event)"  vector-effect="non-scaling-stroke"/-->
             <line :x1="point.x"
                   :y1="point.y"
                   :x2="point.x"
@@ -308,12 +304,10 @@
             visible,
             firstPart,
             lastPart,
-            length,
         ) {
             this.visible = visible;
             this.firstPart = firstPart;
             this.lastPart = lastPart;
-            this.length = length;
         }
     }
 
@@ -428,6 +422,9 @@
                     this.isPanning = true;
                     this.panStart = coords;
                 }
+
+                window.addEventListener("mousemove", this.drag);
+                window.addEventListener("mouseup", this.endDrag);
             },
             getSVGCoordinates(event) {
                 const svg = this.$refs.svg;
@@ -447,6 +444,9 @@
                     this.offsetX = this.points[index].x - coords.x;
                     this.offsetY = this.points[index].y - coords.y;
                 }
+
+                window.addEventListener("mousemove", this.drag);
+                window.addEventListener("mouseup", this.endDrag);
             },
             adjustToNearest(value) {
                 const delta = 5 / this.getSize();
@@ -488,12 +488,16 @@
                 this.draggingObserver = false;
                 this.isPanning = false;
                 this.isPainting = false;
+                window.removeEventListener("mouseup", this.endDrag);
+                window.removeEventListener("mousemove", this.drag);
             },
             startObserverDrag(event) {
                 const coords = this.getSVGCoordinates(event);
                 this.offsetX = this.observer.x - coords.x;
                 this.offsetY = this.observer.y - coords.y;
                 this.draggingObserver = true;
+                window.addEventListener("mousemove", this.drag);
+                window.addEventListener("mouseup", this.endDrag);
             },
             getSize() {
                 const clientRect = this.$refs.svg.getBoundingClientRect();
@@ -564,8 +568,43 @@
             usePart(state, previousPart, currentPart, number) {
                 var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
                 var lineDirectionAsc = !shiftAngle.isNegative();
+
+                if (state.firstPart === null && state.lastPart === null) {
+                    console.log({
+                        lineAngles: {
+                            previous: previousPart.angle.getDegrees(),
+                            current: currentPart.angle.getDegrees(),
+                        },
+                        state: {
+                            firstAngle: null,
+                            lastAngle: null,
+                        },
+                        shiftAngle: shiftAngle.getDegrees(),
+                        currentDirectionAsc: lineDirectionAsc,
+                        number: number - -1,
+                        types: null,
+                    });
+
+                    if (lineDirectionAsc) {
+                        console.log('case 1: empty state and ->');
+                        previousPart.setNext(currentPart);
+
+                        return new State(
+                            true,
+                            previousPart,
+                            currentPart,
+                        );
+                    }
+
+                    console.log('case 1: empty state and <-');
+
+                    return state;
+                }
+
+
                 var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, state.firstPart === state.lastPart);
                 var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle, state.firstPart === state.lastPart);
+
                 console.log({
                     lineAngles: {
                         previous: previousPart.angle.getDegrees(),
@@ -594,7 +633,6 @@
                             state.lastPart.point.isEqual(previousPart.point),
                             state.firstPart,
                             currentPart,
-                            state.length
                         );
                     }
 
@@ -778,7 +816,7 @@
                     if (previousPart === null) {
                         startAngle = currentPart.angle;
                         firstPart = previousPart = currentPart;
-                        state = new State(true, previousPart, previousPart, 0);
+                        state = new State(true, null, null, 0);
                         //console.log(currentPart.angle.getDegrees());
 
                         continue;
