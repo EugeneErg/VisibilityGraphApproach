@@ -316,12 +316,12 @@
             return {
                 tool: 'add',
                 points: [],
-                observer: new Point(500, 500),
+                observer: new Point(0, 0),
                 draggingPoint: null,
                 draggingObserver: false,
                 offsetX: 0,
                 offsetY: 0,
-                viewBox: {x: 0, y: 0, weight: 1000, height: 1000},
+                viewBox: {x: -500, y: -500, weight: 1000, height: 1000},
                 gridSize: 50, // Размер ячейки сетки
                 isPanning: false,
                 isPainting: false,
@@ -353,8 +353,8 @@
         methods: {
             clear() {
                 this.points = [];
-                this.observer = new Point(500, 500);
-                this.viewBox = {x: 0, y: 0, weight: 1000, height: 1000};
+                this.observer = new Point(0, 0);
+                this.viewBox = {x: -500, y: -500, weight: 1000, height: 1000};
             },
             saveToLocalStorage() {
                 localStorage.setItem("save", this.getSaveString());
