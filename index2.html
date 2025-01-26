@@ -438,7 +438,13 @@
             selectPoint(index, event) {
                 if (this.tool === 'remove') {
                     this.points.splice(index, 1);
-                } else {
+                } else if (this.tool === 'add') {
+                    const coords = this.getSVGCoordinates(event);
+                    this.points.splice(index, 0, coords);
+                    this.draggingPoint = index + 1;
+                    this.offsetX = 0;
+                    this.offsetY = 0;
+                } else if (this.tool === 'move') {
                     this.draggingPoint = index;
                     const coords = this.getSVGCoordinates(event);
                     this.offsetX = this.points[index].x - coords.x;
