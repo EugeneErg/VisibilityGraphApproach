@@ -438,7 +438,7 @@
             selectPoint(index, event) {
                 if (this.tool === 'remove') {
                     this.points.splice(index, 1);
-                } else if (this.tool === 'move') {
+                } else {
                     this.draggingPoint = index;
                     const coords = this.getSVGCoordinates(event);
                     this.offsetX = this.points[index].x - coords.x;
@@ -666,8 +666,8 @@
 
                     state.lastPart.setNext(currentPart);
                 } else {
-                    if (previousType === 'end' && currentType === 'out') {
-
+                    if (previousType === 'end' && currentType === 'in') {
+                        //линия может быть как за дугой так и перед
                     }
 
                     //движемся назад
