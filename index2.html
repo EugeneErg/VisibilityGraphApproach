@@ -59,12 +59,14 @@
         <button @click="loadPoints">Load</button>
         <button @click="saveSvg">Save svg</button>
         <button @click="clear">Clear</button>
+        {{ coordinate }}
     </div>
     <div class="svg-container">
         <svg ref="svg" :view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height"
              xmlns="http://www.w3.org/2000/svg"
              preserveAspectRatio="xMidYMid slice"
              @mousedown="startDrag($event)"
+             @mousemove="showCoordinates"
              @wheel="onScroll">
             <!-- Сетка -->
             <defs>
@@ -115,10 +117,11 @@
         next = null;
         nextConnected = false;
 
-        constructor(point, angle, distance) {
+        constructor(point, angle, distance, number) {
             this.point = point;
             this.angle = angle;
             this.distance = distance;
+            this.number = number;
         }
 
         getPreviousConnected() {
@@ -326,6 +329,7 @@
                 isPanning: false,
                 isPainting: false,
                 panStart: null,
+                coordinate: null,
             };
         },
         watch: {
@@ -425,6 +429,9 @@
 
                 window.addEventListener("mousemove", this.drag);
                 window.addEventListener("mouseup", this.endDrag);
+            },
+            showCoordinates(event) {
+                this.coordinate = this.getSVGCoordinates(event);
             },
             getSVGCoordinates(event) {
                 const svg = this.$refs.svg;
@@ -570,6 +577,175 @@
 
                 return angle.between(start, end) ? 'in' : 'out';
             },
+            findIntersection(fromLine, toLine, fromRay, toRay) {
+                const a1 = toLine.y - fromLine.y;
+                const b1 = fromLine.x - toLine.x;
+                const c1 = a1 * fromLine.x + b1 * fromLine.y;
+
+                const a2 = toRay.y - fromRay.y;
+                const b2 = fromRay.x - toRay.x;
+                const c2 = a2 * fromRay.x + b2 * fromRay.y;
+
+                const determinant = a1 * b2 - a2 * b1;
+
+                if (determinant === 0) {
+                    return null; // Линии параллельны или совпадают
+                }
+
+                const x = (b2 * c1 - b1 * c2) / determinant;
+                const y = (a1 * c2 - a2 * c1) / determinant;
+
+                // Проверка, что точка пересечения находится на отрезке и после fromRay
+                if (
+                    x < Math.min(fromLine.x, toLine.x) || x > Math.max(fromLine.x, toLine.x) ||
+                    y < Math.min(fromLine.y, toLine.y) || y > Math.max(fromLine.y, toLine.y) ||
+                    ((x < fromRay.x && toRay.x >= fromRay.x) || (x > fromRay.x && toRay.x <= fromRay.x)) ||
+                    ((y < fromRay.y && toRay.y >= fromRay.y) || (y > fromRay.y && toRay.y <= fromRay.y))
+                ) {
+                    return null;
+                }
+
+                return new Point(x, y);
+            },
+            findIntersection2(fromLine, toLine, fromRay, toRay) {
+                const a1 = toLine.y - fromLine.y;
+                const b1 = fromLine.x - toLine.x;
+                const c1 = a1 * fromLine.x + b1 * fromLine.y;
+
+                const a2 = toRay.y - fromRay.y;
+                const b2 = fromRay.x - toRay.x;
+                const c2 = a2 * fromRay.x + b2 * fromRay.y;
+
+                const determinant = a1 * b2 - a2 * b1;
+
+                if (determinant === 0) {
+                    return null; // Линии параллельны или совпадают
+                }
+
+                const x = (b2 * c1 - b1 * c2) / determinant;
+                const y = (a1 * c2 - a2 * c1) / determinant;
+
+                // Проверка, что точка пересечения находится на обоих отрезках
+                if (
+                    x < Math.min(fromLine.x, toLine.x) || x > Math.max(fromLine.x, toLine.x) ||
+                    y < Math.min(fromLine.y, toLine.y) || y > Math.max(fromLine.y, toLine.y) ||
+                    x < Math.min(fromRay.x, toRay.x) || x > Math.max(fromRay.x, toRay.x) ||
+                    y < Math.min(fromRay.y, toRay.y) || y > Math.max(fromRay.y, toRay.y)
+                ) {
+                    return null;
+                }
+
+                return new Point(x, y);
+            },
+            findIncludeDesc(state, lineFrom, lineTo) {
+                for (
+                    var partTo = state.lastPart, partFrom = 0;
+                    partTo !== null;
+                    partFrom = partTo, partTo = partTo.previous
+                ) {
+                    const intersectPoint = this.findIntersection(
+                        lineFrom.point,
+                        lineTo.point,
+                        this.observer,
+                        partTo.point,
+                    );
+                    const distance = this.getDistance(this.observer, intersectPoint);
+
+                    if (distance > partTo.distance) {
+                        const newPart = new Part(intersectPoint, this.getAngle(this.observer, intersectPoint), distance, null);
+                        partTo.setNext(newPart);
+                        newPart.setNext(lineTo);
+
+                        return new State(
+                            state.visible,
+                            state.firstPart,
+                            lineTo,
+                        )
+                    }
+
+                    //todo
+
+                }
+
+                return state;
+            },
+            findIntersectDesc(state, lineFrom, lineTo) {
+                //todo не работает для текущего случая. Не отрезает
+
+                for (
+                    var partTo = state.lastPart, partFrom = 0;
+                    partTo !== null;
+                    partFrom = partTo, partTo = partTo.previous
+                ) {
+                    if (partTo === lineFrom) {
+                        continue;
+                    }
+
+                    if (partTo.angle.isEqual(lineFrom.angle)) {
+                        if (partTo.distance < lineFrom.distance) {
+                            return state;
+                        }
+
+                        continue;
+                    }
+
+                    if (partTo.angle.isEqual(lineTo.angle)) {
+                        if (partTo.distance > lineTo.distance) {
+                            partTo.setNext(lineTo);
+
+                            return new State(
+                                state.visible,
+                                state.firstPart,
+                                lineTo,
+                            )
+                        }
+
+                        return state;
+                    }
+
+                    if (lineTo.angle.between(partTo.angle, partFrom.angle)) {
+                        const intersectPoint = this.findIntersection(
+                            partFrom.point,
+                            partTo.point,
+                            this.observer,
+                            lineTo.point,
+                        )
+
+                        if (intersectPoint === null) {
+                            continue
+                        }
+
+                        const distance = this.getDistance(this.observer, intersectPoint);
+
+                        console.log('!!!!!!!!!!!', intersectPoint)
+
+                        if (distance < lineTo.distance) {
+                            //todo обе линии пересекаются в точке наблюдателя
+                            console.log({
+                                intersectPoint: intersectPoint,
+                                distance: distance,
+                                partFrom: partFrom,
+                                partTo: partTo,
+                                lineTo: lineTo,
+                                observer: this.observer,
+                            });
+                            return state;
+                        }
+
+                        const newPart = new Part(intersectPoint, this.getAngle(this.observer, intersectPoint), distance, null);
+                        partTo.setNext(newPart);
+                        newPart.setNext(lineTo);
+
+                        return new State(
+                            state.visible,
+                            state.firstPart,
+                            lineTo,
+                        )
+                    }
+                }
+
+                return new State(state.visible, null, null);
+            },
             /** @returns State */
             usePart(state, previousPart, currentPart, number) {
                 var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
@@ -670,10 +846,37 @@
 
                     }
 
+                    if (previousType === 'in' && currentType === 'out') {
+                        return this.findIncludeDesc(state, previousPart, currentPart);
+                    }
+
                     state.lastPart.setNext(currentPart);
                 } else {
                     if (previousType === 'end' && currentType === 'in') {
-                        //линия может быть как за дугой так и перед
+                        //линия может быть как за дугой, так и перед
+                        //может либо быть видима вся либо вся невидима.
+                        //либо добавляем, либо нет. Ничего не отрезаем
+
+                        if (previousPart === state.lastPart) {
+                            console.log('WWWWWWWWWW');
+                            //первая точка линии является частью видимой дуги
+                            return this.findIntersectDesc(state, previousPart, currentPart);
+                        }
+
+                        if (previousPart.distance < state.lastPart.distance) {
+                            //линия явно за дугой
+                            return state;
+                        }
+
+                        state.lastPart.setNext(previousPart)
+                        previousPart.setNext(currentPart);
+                        console.log('add 2 point');
+
+                        return new State(
+                            true,
+                            state.firstPart,
+                            currentPart,
+                        );
                     }
 
                     //движемся назад
@@ -817,6 +1020,7 @@
                         point,
                         this.getAngle(this.observer, point),
                         this.getDistance(this.observer, point),
+                        number,
                     );
 
                     if (previousPart === null) {
