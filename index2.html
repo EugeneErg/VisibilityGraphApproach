@@ -59,7 +59,13 @@
         <button @click="loadPoints">Load</button>
         <button @click="saveSvg">Save svg</button>
         <button @click="clear">Clear</button>
-        {{ coordinate }}
+        <span v-if="coordinate">
+            x: {{ coordinate.x }}
+            <br/>
+            x: {{ coordinate.y }}
+            <br/>
+            angle: {{ getAngle(observer, coordinate).getDegrees() }}
+        </span>
     </div>
     <div class="svg-container">
         <svg ref="svg" :view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height"
@@ -562,7 +568,7 @@
                     ? Angle.pi().minus(result)
                     : result;
             },
-            getType(angle, start, end, empty) {
+            getType(angle, start, end, level) {
                 if (angle.isEqual(end)) {
                     return 'end';
                 }
@@ -572,7 +578,7 @@
                 }
 
                 if (start.isEqual(end)) {
-                    return empty ? 'out' : 'in';
+                    return level === 0 ? 'out' : 'in';
                 }
 
                 return angle.between(start, end) ? 'in' : 'out';
@@ -746,8 +752,74 @@
 
                 return new State(state.visible, null, null);
             },
+            shiftLevel(direction, firstPartAngle, previousPartAngle, currentPartAngle, state) {
+                console.log({
+                    direction: direction,
+                    firstPartAngle: firstPartAngle === null ? null : firstPartAngle.getDegrees(),
+                    previousPartAngle: previousPartAngle.getDegrees(),
+                    currentPartAngle: currentPartAngle.getDegrees(),
+                    state: state,
+                });
+
+                if (firstPartAngle === null) {
+                    console.log('Угол сброшен. Начинаем отсчет заново. Засекли, что двигаемся ' + (direction ? 'по' : 'против') + ' часовой стрелке')
+                    //угол сброшен, сбрасываем счетчик
+                    return {level: 0, direction: direction};
+                }
+
+                if (direction === null) {
+                    console.log('Топчемся на месте');
+                    //топчемся на месте, счетчик не меняется
+                    return state;
+                }
+
+                //тут лучше точное сравнение. Так ошибка не накапливается
+                if (previousPartAngle.isEqual(firstPartAngle.value, 0)) {
+                    console.log('Начали двигаться ' + (direction ? 'по' : 'против') + ' часовой стрелке');
+                    //отходим от старта
+                    return {level: state.level, direction: direction};
+                }
+
+                if (currentPartAngle.isEqual(firstPartAngle, 0)) {
+                    //дошли до финиша
+                    //либо просто вернулись,
+                    //либо реально сделали круг.
+                    //Смотрим на текущее направление и на направление в какую сторону шли
+
+                    if (direction === state.direction) {
+                        console.log('Сделали ещё один круг ' + (direction ? 'по' : 'против') + ' часовой стрелке')
+                        return {level: state.level + (direction ? 1 : -1), direction: direction};
+                    }
+
+                    console.log('Вернулись к началу текущего круга')
+
+                    return {level: state.level, direction: null};
+                }
+
+                if (direction !== state.direction) {
+                    console.log('Перешагнули обратно через начало круга ' + (direction ? 'по' : 'против') + ' часовой стрелке')
+
+                    return {level: state.level, direction: direction};
+                }
+
+                const between = firstPartAngle.between(previousPartAngle, currentPartAngle);
+
+                if (direction) {
+                    between
+                        ? console.log('Перешагнули начало круга по часовой стрелке')
+                        : console.log('Где то идем по часовой стрелке');
+
+                    return {level: state.level + (between ? 1 : 0), direction: direction};
+                }
+
+                between
+                    ? console.log('Где то идем против часовой стрелке')
+                    : console.log('Перешагнули начало круга против часовой стрелке');
+
+                return {level: state.level + (between ? 0 : -1), direction: direction};
+            },
             /** @returns State */
-            usePart(state, previousPart, currentPart, number) {
+            usePart(state, previousPart, currentPart, number, level) {
                 var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
                 var lineDirectionAsc = !shiftAngle.isNegative();
 
@@ -765,6 +837,7 @@
                         currentDirectionAsc: lineDirectionAsc,
                         number: number - -1,
                         types: null,
+                        level: level,
                     });
 
                     if (lineDirectionAsc) {
@@ -783,9 +856,8 @@
                     return state;
                 }
 
-
-                var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, state.firstPart === state.lastPart);
-                var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle, state.firstPart === state.lastPart);
+                var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, level);
+                var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle, level);
 
                 console.log({
                     lineAngles: {
@@ -803,6 +875,7 @@
                         previous: previousType,
                         current: currentType,
                     },
+                    level: level,
                 });
 
                 if (lineDirectionAsc) {
@@ -871,6 +944,28 @@
                         state.lastPart.setNext(previousPart)
                         previousPart.setNext(currentPart);
                         console.log('add 2 point');
+
+                        return new State(
+                            true,
+                            state.firstPart,
+                            currentPart,
+                        );
+                    }
+
+                    if (previousType === 'end' && currentType === 'start') {
+                        //todo может быть сзади и спереди видимой дуги. Сейчас учитывается только кейс спереди
+                        state.firstPart.setNext(currentPart);
+
+                        return new State(
+                            true,
+                            state.firstPart,
+                            currentPart,
+                        );
+                    }
+
+                    if (previousType === 'end' && currentType === 'out') {
+                        //todo может быть сзади и спереди видимой дуги. Сейчас учитывается только кейс спереди
+                        state.firstPart.setNext(currentPart);
 
                         return new State(
                             true,
@@ -1012,6 +1107,8 @@
                 var firstPart = null;
                 var startAngle = null;
                 var directionAsc = null;
+                var level = 0;
+                var levelState = null;
                 console.clear();
 
                 for (const number in this.points) {
@@ -1036,7 +1133,14 @@
                         ? null
                         : shiftAngle.isPositive();
 
-                    state = this.usePart(state, previousPart, currentPart, number);
+                    levelState = this.shiftLevel(
+                        newDirectionAsc,
+                        state.firstPart === null ? null : state.firstPart.angle,
+                        previousPart.angle,
+                        currentPart.angle,
+                        levelState,
+                    );
+                    state = this.usePart(state, previousPart, currentPart, number, levelState.level);
                     previousPart = currentPart;
                     directionAsc = newDirectionAsc;
                 }
@@ -1044,7 +1148,10 @@
                 var result = [];
 
                 if (firstPart !== null) {
-                    state = this.usePart(state, previousPart, firstPart, 0);
+                    //firstPart.unsetNext();
+                    //state = this.usePart(state, previousPart, firstPart, 0);
+
+                    console.log('result', state);
                     var firstRoot = null;
 
                     for (
