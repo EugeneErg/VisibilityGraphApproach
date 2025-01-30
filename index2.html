@@ -86,7 +86,7 @@
             <!-- Полигон, точки, линии -->
             <polygon :points="visiblePoints.map(p => `${p.x},${p.y}`).join(' ')" fill="rgba(0,255,0,0.5)"/>
             <line v-for="line in observerLines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
-                  stroke="rgba(0,255,0,0.5)" stroke-width="2" stroke-dasharray="5, 10" vector-effect="non-scaling-stroke"/>
+                  stroke="rgba(255,0,0,0.5)" stroke-width="2" stroke-dasharray="5, 10" vector-effect="non-scaling-stroke"/>
             <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
                   stroke="rgba(0,0,255,0.5)" stroke-width="2" stroke-dasharray="5, 5" vector-effect="non-scaling-stroke"/>
             <line :x1="point.x"
@@ -643,6 +643,50 @@
 
                 return new Point(x, y);
             },
+            findUnionAsc(state, lineFrom, lineTo) {
+                for (
+                    var partTo = state.lastPart, partFrom = 0;
+                    partTo !== null;
+                    partFrom = partTo, partTo = partTo.previous
+                ) {
+                    if (partTo.angle.isEqual(lineFrom.angle)) {
+                        continue;
+                    }
+
+                    if (partTo.angle.isEqual(lineTo.angle)) {
+                        if (partTo.distance < lineTo.distance) {
+                            return state;
+                        }
+
+                        if (partTo.distance > lineTo.distance) {
+                            return new State(state.visible, null, null);
+                        }
+
+                        continue;
+                    }
+
+                    if (partTo.angle.between(lineTo.angle, lineFrom.angle)) {
+                        const intersectPoint = this.findIntersection(
+                            lineTo.point,
+                            lineFrom.point,
+                            this.observer,
+                            partTo.point,
+                        )
+
+                        if (intersectPoint === null) {
+                            continue;
+                        }
+
+                        const distance = this.getDistance(this.observer, intersectPoint);
+
+                        return distance < partTo.distance
+                            ? new State(state.visible, null, null)
+                            : state;
+                    }
+                }
+
+                return state;
+            },
             findIncludeDesc(state, lineFrom, lineTo) {
                 for (
                     var partTo = state.lastPart, partFrom = 0;
@@ -675,9 +719,53 @@
 
                 return state;
             },
-            findIntersectDesc(state, lineFrom, lineTo) {
-                //todo не работает для текущего случая. Не отрезает
+            findIntersectAsc(state, lineFrom, lineTo) {
+                for (
+                    var partTo = state.firstPart, partFrom = 0;
+                    partTo !== null;
+                    partFrom = partTo, partTo = partTo.next
+                ) {
+                    if (partTo.angle.isEqual(lineFrom.angle)) {
+                        return lineFrom.distance < partTo.distance
+                            ? new State(state.visible, null, null)
+                            : state;
+                    }
 
+                    if (partTo.angle.isEqual(lineTo.angle)) {
+                        if (partTo.distance < lineTo.distance) {
+                            return state;
+                        }
+
+                        if (partTo.distance > lineTo.distance) {
+                            return new State(state.visible, null, null);
+                        }
+
+                        continue;
+                    }
+
+                    if (partTo.angle.between(lineTo.angle, lineFrom.angle)) {
+                        const intersectPoint = this.findIntersection(
+                            lineTo.point,
+                            lineFrom.point,
+                            this.observer,
+                            partTo.point,
+                        )
+
+                        if (intersectPoint === null) {
+                            continue;
+                        }
+
+                        const distance = this.getDistance(this.observer, intersectPoint);
+
+                        return distance < partTo.distance
+                            ? new State(state.visible, null, null)
+                            : state;
+                    }
+                }
+
+                reportError('wtf');
+            },
+            findIntersectDesc(state, lineFrom, lineTo) {
                 for (
                     var partTo = state.lastPart, partFrom = 0;
                     partTo !== null;
@@ -916,10 +1004,15 @@
                     }
 
                     if (previousType === 'end' && currentType === 'in') {
-
+                        return this.findUnionAsc(state, previousPart, currentPart);
                     }
 
                     if (previousType === 'in' && currentType === 'out') {
+                        return this.findIncludeDesc(state, previousPart, currentPart);
+                    }
+
+                    if (previousType === 'out' && currentType === 'out') {
+                        //
                         return this.findIncludeDesc(state, previousPart, currentPart);
                     }
 
@@ -953,6 +1046,8 @@
                     }
 
                     if (previousType === 'end' && currentType === 'start') {
+                        return this.findIntersectAsc(state, previousPart, currentPart);
+
                         //todo может быть сзади и спереди видимой дуги. Сейчас учитывается только кейс спереди
                         state.firstPart.setNext(currentPart);
 
@@ -965,6 +1060,9 @@
 
                     if (previousType === 'end' && currentType === 'out') {
                         //todo может быть сзади и спереди видимой дуги. Сейчас учитывается только кейс спереди
+
+                        return this.findIntersectAsc(state, previousPart, currentPart);
+
                         state.firstPart.setNext(currentPart);
 
                         return new State(
