@@ -60,11 +60,11 @@
         <button @click="saveSvg">Save svg</button>
         <button @click="clear">Clear</button>
         <span v-if="coordinate">
-            x: {{ coordinate.x }}
+            x: {{ coordinate.x.toFixed(2) }}
             <br/>
-            x: {{ coordinate.y }}
+            x: {{ coordinate.y.toFixed(2) }}
             <br/>
-            angle: {{ getAngle(observer, coordinate).getDegrees() }}
+            angle: {{ getAngle(observer, coordinate).getDegrees().toFixed(2) }}
         </span>
     </div>
     <div class="svg-container">
@@ -313,10 +313,12 @@
             visible,
             firstPart,
             lastPart,
+            previousPart,
         ) {
             this.visible = visible;
             this.firstPart = firstPart;
             this.lastPart = lastPart;
+            this.previousPart = previousPart;
         }
     }
 
@@ -643,46 +645,73 @@
 
                 return new Point(x, y);
             },
+            getPartFromIntersect(lineFrom, lineTo, observer, ray, check) {
+                if (check !== false && !ray.angle.between(lineFrom.angle, lineTo.angle)) {
+                    return null;
+                }
+
+                const intersectPoint = this.findIntersection(
+                    lineFrom.point,
+                    lineTo.point,
+                    observer,
+                    ray.point,
+                )
+
+                if (intersectPoint === null) {
+                    return null;
+                }
+
+                return new Part(
+                    intersectPoint,
+                    ray.angle,
+                    this.getDistance(observer, intersectPoint),
+                    null,
+                );
+            },
             findUnionAsc(state, lineFrom, lineTo) {
                 for (
                     var partTo = state.lastPart, partFrom = 0;
                     partTo !== null;
                     partFrom = partTo, partTo = partTo.previous
                 ) {
-                    if (partTo.angle.isEqual(lineFrom.angle)) {
+                    console.log('1!!!!!!!!!');
+                    if (partTo === lineFrom || partTo.angle.isEqual(lineFrom.angle)) {
                         continue;
                     }
 
-                    if (partTo.angle.isEqual(lineTo.angle)) {
-                        if (partTo.distance < lineTo.distance) {
-                            return state;
-                        }
+                    if (lineTo.angle.isEqual(partTo.angle)) {
+                        partTo.unsetPrevious();
+                        state.lastPart.setNext(lineTo);
 
-                        if (partTo.distance > lineTo.distance) {
-                            return new State(state.visible, null, null);
-                        }
-
-                        continue;
+                        return new State(state.visible, partTo, lineTo)
                     }
 
-                    if (partTo.angle.between(lineTo.angle, lineFrom.angle)) {
-                        const intersectPoint = this.findIntersection(
-                            lineTo.point,
-                            lineFrom.point,
-                            this.observer,
-                            partTo.point,
-                        )
+                    if (lineTo.distance < partTo.distance) {
+                        const intersectPart = this.getPartFromIntersect(partTo, partFrom, this.observer, lineTo);
+                        console.log('2!!!!!!!!!', {
+                            intersectPart: intersectPart,
+                            partFrom: partFrom,
+                            partTo: partTo,
+                            lineTo: lineTo,
+                        });
 
-                        if (intersectPoint === null) {
-                            continue;
+                        if (intersectPart !== null && intersectPart.distance > lineTo.distance) {
+                            partFrom.setPrevious(intersectPart);
+
+                            const res = new State(
+                                state.visible,
+                                intersectPart,
+                                lineTo,
+                            );
+
+                            console.log(res)
+
+                            return res;
                         }
-
-                        const distance = this.getDistance(this.observer, intersectPoint);
-
-                        return distance < partTo.distance
-                            ? new State(state.visible, null, null)
-                            : state;
+                    } else {
                     }
+
+
                 }
 
                 return state;
@@ -693,18 +722,11 @@
                     partTo !== null;
                     partFrom = partTo, partTo = partTo.previous
                 ) {
-                    const intersectPoint = this.findIntersection(
-                        lineFrom.point,
-                        lineTo.point,
-                        this.observer,
-                        partTo.point,
-                    );
-                    const distance = this.getDistance(this.observer, intersectPoint);
+                    const intersectPoint = this.getPartFromIntersect(lineFrom, lineTo, this.observer, partTo);
 
-                    if (distance > partTo.distance) {
-                        const newPart = new Part(intersectPoint, this.getAngle(this.observer, intersectPoint), distance, null);
-                        partTo.setNext(newPart);
-                        newPart.setNext(lineTo);
+                    if (intersectPoint.distance > partTo.distance) {
+                        partTo.setNext(intersectPoint);
+                        intersectPoint.setNext(lineTo);
 
                         return new State(
                             state.visible,
@@ -743,21 +765,10 @@
                         continue;
                     }
 
-                    if (partTo.angle.between(lineTo.angle, lineFrom.angle)) {
-                        const intersectPoint = this.findIntersection(
-                            lineTo.point,
-                            lineFrom.point,
-                            this.observer,
-                            partTo.point,
-                        )
+                    const intersectPart = this.getPartFromIntersect(lineTo, lineFrom, this.observer, partTo.point);
 
-                        if (intersectPoint === null) {
-                            continue;
-                        }
-
-                        const distance = this.getDistance(this.observer, intersectPoint);
-
-                        return distance < partTo.distance
+                    if (intersectPart !== null) {
+                        intersectPart.distance < partTo.distance
                             ? new State(state.visible, null, null)
                             : state;
                     }
@@ -766,17 +777,22 @@
                 reportError('wtf');
             },
             findIntersectDesc(state, lineFrom, lineTo) {
+                // удаляем некоторые, все или ни одной
                 for (
                     var partTo = state.lastPart, partFrom = 0;
                     partTo !== null;
                     partFrom = partTo, partTo = partTo.previous
                 ) {
                     if (partTo === lineFrom) {
+                        //если текущая линия растет с этой точки, не смотрим на неё
                         continue;
                     }
 
                     if (partTo.angle.isEqual(lineFrom.angle)) {
+                        //текущая линия растет с этого угла.
                         if (partTo.distance < lineFrom.distance) {
+                            //если текущая точка ближе к наблюдателю, чем точка начала линии
+                            console.log('Линию не видно. Ничего не меняется')
                             return state;
                         }
 
@@ -784,8 +800,11 @@
                     }
 
                     if (partTo.angle.isEqual(lineTo.angle)) {
+                        //текущая линия заканчивается в данном углу
                         if (partTo.distance > lineTo.distance) {
+                            //текущая точка дальше от наблюдателя, чем конечная точка линии
                             partTo.setNext(lineTo);
+                            console.log('Линия что то обрезает')
 
                             return new State(
                                 state.visible,
@@ -794,41 +813,44 @@
                             )
                         }
 
+                        console.log('Линию не видно. Ничего не меняется')
                         return state;
                     }
 
-                    if (lineTo.angle.between(partTo.angle, partFrom.angle)) {
-                        const intersectPoint = this.findIntersection(
-                            partFrom.point,
-                            partTo.point,
-                            this.observer,
-                            lineTo.point,
-                        )
+                    if (partTo.distance < lineTo.distance) {
+                        const intersectPart = this.getPartFromIntersect(lineTo, lineFrom, this.observer, partTo);
 
-                        if (intersectPoint === null) {
+                        if (intersectPart === null) {
                             continue
                         }
 
-                        const distance = this.getDistance(this.observer, intersectPoint);
+                        if (intersectPart.distance < partTo.distance) {
+                            alert('test')
+                            return state;
+                        }
+                    } else {
+                        const intersectPart = this.getPartFromIntersect(partTo, partFrom, this.observer, lineTo);
 
-                        console.log('!!!!!!!!!!!', intersectPoint)
+                        if (intersectPart === null) {
+                            continue
+                        }
 
-                        if (distance < lineTo.distance) {
+                        if (intersectPart.distance < lineTo.distance) {
                             //todo обе линии пересекаются в точке наблюдателя
                             console.log({
-                                intersectPoint: intersectPoint,
-                                distance: distance,
+                                intersectPart: intersectPart,
                                 partFrom: partFrom,
                                 partTo: partTo,
                                 lineTo: lineTo,
                                 observer: this.observer,
                             });
+                            console.log('Линию не видно. Ничего не меняется')
                             return state;
                         }
 
-                        const newPart = new Part(intersectPoint, this.getAngle(this.observer, intersectPoint), distance, null);
-                        partTo.setNext(newPart);
-                        newPart.setNext(lineTo);
+                        partTo.setNext(intersectPart);
+                        intersectPart.setNext(lineTo);
+                        console.log('Линию что то обрезает')
 
                         return new State(
                             state.visible,
@@ -838,6 +860,7 @@
                     }
                 }
 
+                console.log('Все удаляется(')
                 return new State(state.visible, null, null);
             },
             shiftLevel(direction, firstPartAngle, previousPartAngle, currentPartAngle, state) {
@@ -1008,6 +1031,7 @@
                     }
 
                     if (previousType === 'in' && currentType === 'out') {
+
                         return this.findIncludeDesc(state, previousPart, currentPart);
                     }
 
