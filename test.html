@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circle Manipulation</title>
+    <script src="/scripts/vue.global.js"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #f5f7fa;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+            user-select: none;
+        }
+        #app {
+            display: flex;
+            height: 100%;
+        }
+        .toolbar {
+            width: 200px;
+            background-color: #e8ebf0;
+            padding: 10px;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+        }
+        .toolbar button {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .svg-container {
+            flex: 1;
+            position: relative;
+        }
+        svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        circle {
+            cursor: pointer;
+        }
+        .active {
+            border: 2px;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="toolbar">
+        <button :class="{active: tool === 'add'}" @click="setTool('add')">Add</button>
+        <button :class="{active: tool === 'remove'}" @click="setTool('remove')">Remove</button>
+        <button :class="{active: tool === 'move'}" @click="setTool('move')">Move</button>
+        <button :class="{active: tool === 'paint'}" @click="setTool('paint')">Paint</button>
+        <button @click="savePoints">Save</button>
+        <button @click="loadPoints">Load</button>
+        <button @click="saveSvg">Save svg</button>
+        <button @click="clear">Clear</button>
+        <button @click="saveToExamples">Save to examples</button>
+        <button @click="loadFromExamples">Load from examples</button>
+        <span v-if="coordinate">
+            x: {{ coordinate.x.toFixed(2) }}
+            <br/>
+            x: {{ coordinate.y.toFixed(2) }}
+            <br/>
+            angle: {{ getAngle(observer, coordinate).getDegrees().toFixed(2) }}
+        </span>
+    </div>
+    <div class="svg-container">
+        <svg ref="svg" :view-box.camel="viewBox.x + ' ' + viewBox.y + ' ' + viewBox.weight + ' ' + viewBox.height"
+             xmlns="http://www.w3.org/2000/svg"
+             preserveAspectRatio="xMidYMid slice"
+             @mousedown="startDrag($event)"
+             @mousemove="showCoordinates"
+             @wheel="onScroll">
+            <!-- Сетка -->
+            <defs>
+                <pattern id="grid" :width="gridSize" :height="gridSize" patternUnits="userSpaceOnUse" patternTransform="translate(0,0)">
+                    <rect :width="gridSize" :height="gridSize" fill="none" stroke="#ccc" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
+                    <line x1="0" y1="0" :x2="gridSize" :y2="gridSize" stroke="#ccc" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
+                    <line x1="0" :y1="gridSize" :x2="gridSize" y2="0" stroke="#ccc" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
+                </pattern>
+            </defs>
+            <rect :x="viewBoxX" :y="viewBoxY" width="100%" height="100%" fill="url(#grid)"/>
+            <!-- Полигон, точки, линии -->
+            <line v-for="line in observerLines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
+                  stroke="rgba(255,0,0,0.5)" stroke-width="2" stroke-dasharray="5, 10" vector-effect="non-scaling-stroke"/>
+            <line v-for="line in lines" :x1="line.x1" :y1="line.y1" :x2="line.x2" :y2="line.y2"
+                  stroke="rgba(0,0,255,0.5)" stroke-width="2" stroke-dasharray="5, 5" vector-effect="non-scaling-stroke"/>
+            <line :x1="point.x"
+                  :y1="point.y"
+                  :x2="point.x"
+                  :y2="point.y"
+                  v-for="(point, index) in points"
+                  stroke="blue"
+                  stroke-width="20"
+                  stroke-linecap="round"
+                  vector-effect="non-scaling-stroke"
+                  cursor="pointer"
+                  @mousedown.stop="selectPoint(index, $event)" />
+            <text v-for="(point, index) in points" :x="point.x + 12" :y="point.y + 4" font-size="12" fill="black">
+                {{ index + 1 }}
+            </text>
+            <line :x1="observer.x"
+                  :y1="observer.y"
+                  :x2="observer.x"
+                  :y2="observer.y"
+                  stroke="black"
+                  stroke-width="20"
+                  stroke-linecap="round"
+                  vector-effect="non-scaling-stroke"
+                  cursor="pointer"
+                  @mousedown.stop="startObserverDrag($event)" />
+            <text v-for="(point, index) in points" :x="point.x + 12" :y="point.y + 4" font-size="12" fill="black" vector-effect="non-scaling-stroke"/>
+        </svg>
+    </div>
+</div>
+<script>
+    const app = Vue.createApp({
+        data() {
+            return {
+                tool: 'add',
+                points: [],
+                observer: new Point(0, 0),
+                draggingPoint: null,
+                draggingObserver: false,
+                offsetX: 0,
+                offsetY: 0,
+                viewBox: {x: -500, y: -500, weight: 1000, height: 1000},
+                gridSize: 50, // Размер ячейки сетки
+                isPanning: false,
+                isPainting: false,
+                panStart: null,
+                coordinate: null,
+            };
+        },
+        watch: {
+            points: {
+                handler: "saveToLocalStorage",
+                deep: true
+            },
+            observer: {
+                handler: "saveToLocalStorage",
+                deep: true
+            },
+            viewBox: {
+                handler: "saveToLocalStorage",
+                deep: true
+            },
+        },
+        beforeMount() {
+            const save = localStorage.getItem("save");
+            this.tool = localStorage.getItem("tool");
+
+            if (save) {
+                this.loadFromString(save);
+            }
+        },
+        methods: {
+            clear() {
+                this.points = [];
+                this.observer = new Point(0, 0);
+                this.viewBox = {x: -500, y: -500, weight: 1000, height: 1000};
+            },
+            saveToLocalStorage() {
+                localStorage.setItem("save", this.getSaveString());
+            },
+            screenToString(points, viewBox, observer, name) {
+                return JSON.stringify({points: points, viewBox: viewBox, observer: observer, name: name});
+            },
+            getSaveString(name) {
+                return this.screenToString(this.points, this.viewBox, this.observer, name);
+            },
+            stringToScreen(string) {
+                const data = JSON.parse(string);
+
+                return {
+                    points: data.points.map(({x, y}) => new Point(x, y)),
+                    observer: new Point(data.observer.x, data.observer.y),
+                    viewBox: data.viewBox,
+                }
+            },
+            loadFromString(string) {
+                const data = this.stringToScreen(string);
+                this.points = data.points;
+                this.observer = data.observer;
+                this.viewBox = data.viewBox;
+            },
+            savePoints() {
+                const blob = new Blob([this.getSaveString()], { type: "application/json" });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "points.json";
+                link.click();
+            },
+            saveSvg() {
+                const svgElement = this.$refs.svg;
+                const svgData = new XMLSerializer().serializeToString(svgElement);
+                const blob = new Blob([svgData], { type: 'image/svg+xml' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = "points.svg";
+                link.click();
+            },
+            findNextNumber(callback) {
+                const keys = Object.keys(localStorage);
+
+                for (
+                    var i = 0, result = callback(i);
+                    keys.indexOf(result) >= 0;
+                    i++, result = callback(i)
+                ) {
+                }
+
+                return result;
+            },
+            saveToExamples() {
+                const name = prompt('Введите название примера', 'Новый пример');
+                const key = this.findNextNumber(function (index) {
+                    return 'examples.' + index;
+                });
+
+                localStorage.setItem(key, this.getSaveString(name));
+            },
+            loadFromExamples() {
+
+            },
+            loadPoints() {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "application/json";
+                input.addEventListener("change", (event) => {
+                    const file = event.target.files[0];
+
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            this.loadFromString(e.target.result);
+                        };
+                        reader.readAsText(file);
+                    }
+                });
+                input.click();
+            },
+            setTool(tool) {
+                this.tool = tool;
+                localStorage.setItem("tool", tool);
+            },
+            startDrag(event) {
+                const coords = this.getSVGCoordinates(event);
+
+                if (this.tool === 'paint') {
+                    this.points.push(coords);
+                    this.panStart = coords;
+                    this.isPainting = true;
+                } else if (this.tool === 'add') {
+                    this.points.push(coords);
+                } else if (event.target.tagName !== 'circle') {
+                    this.isPanning = true;
+                    this.panStart = coords;
+                }
+
+                window.addEventListener("mousemove", this.drag);
+                window.addEventListener("mouseup", this.endDrag);
+            },
+            showCoordinates(event) {
+                this.coordinate = this.getSVGCoordinates(event);
+            },
+            getSVGCoordinates(event) {
+                const svg = this.$refs.svg;
+                const point = svg.createSVGPoint();
+                point.x = event.clientX;
+                point.y = event.clientY;
+                const ctm = svg.getScreenCTM().inverse();
+                const transformed = point.matrixTransform(ctm);
+                return new Point(transformed.x, transformed.y);
+            },
+            selectPoint(index, event) {
+                if (this.tool === 'remove') {
+                    this.points.splice(index, 1);
+                } else if (this.tool === 'add') {
+                    const coords = this.getSVGCoordinates(event);
+                    this.points.splice(index, 0, coords);
+                    this.draggingPoint = index + 1;
+                    this.offsetX = 0;
+                    this.offsetY = 0;
+                } else if (this.tool === 'move') {
+                    this.draggingPoint = index;
+                    const coords = this.getSVGCoordinates(event);
+                    this.offsetX = this.points[index].x - coords.x;
+                    this.offsetY = this.points[index].y - coords.y;
+                }
+
+                window.addEventListener("mousemove", this.drag);
+                window.addEventListener("mouseup", this.endDrag);
+            },
+            adjustToNearest(value) {
+                const delta = 5 / this.getSize();
+
+                if (
+                    Math.abs(value % this.gridSize) <= delta
+                    || Math.abs(value % this.gridSize) >= this.gridSize - delta
+                ) {
+                    return Math.round(value / this.gridSize) * this.gridSize;
+                }
+
+                return value;
+            },
+            drag(event) {
+                const coords = this.getSVGCoordinates(event);
+
+                if (this.draggingPoint !== null) {
+                    this.points[this.draggingPoint].x = this.adjustToNearest(coords.x + this.offsetX);
+                    this.points[this.draggingPoint].y = this.adjustToNearest(coords.y + this.offsetY);
+                } else if (this.draggingObserver) {
+                    this.observer.x = this.adjustToNearest(coords.x + this.offsetX);
+                    this.observer.y = this.adjustToNearest(coords.y + this.offsetY);
+                } else if (this.isPanning) {
+                    this.viewBox = {
+                        x: this.viewBox.x + (this.panStart.x - coords.x),
+                        y: this.viewBox.y + (this.panStart.y - coords.y),
+                        weight: this.viewBox.weight,
+                        height: this.viewBox.height,
+                    };
+                } else if (this.isPainting) {
+                    if (this.getDistance(this.panStart, coords) > this.gridSize * this.gridSize) {
+                        this.points.push(coords);
+                        this.panStart = coords;
+                    }
+                }
+            },
+            endDrag() {
+                this.draggingPoint = null;
+                this.draggingObserver = false;
+                this.isPanning = false;
+                this.isPainting = false;
+                window.removeEventListener("mouseup", this.endDrag);
+                window.removeEventListener("mousemove", this.drag);
+            },
+            startObserverDrag(event) {
+                const coords = this.getSVGCoordinates(event);
+                this.offsetX = this.observer.x - coords.x;
+                this.offsetY = this.observer.y - coords.y;
+                this.draggingObserver = true;
+                window.addEventListener("mousemove", this.drag);
+                window.addEventListener("mouseup", this.endDrag);
+            },
+            getSize() {
+                const clientRect = this.$refs.svg.getBoundingClientRect();
+                const viewBox = this.$refs.svg.getBBox();
+
+                const viewBoxWidth = viewBox.width;
+                const viewBoxHeight = viewBox.height;
+
+                return Math.max(clientRect.width / viewBoxWidth, clientRect.height / viewBoxHeight);
+            },
+            onScroll(event) {
+                const [x, y, width, height] = [this.viewBox.x, this.viewBox.y, this.viewBox.weight, this.viewBox.height];
+                const scaleFactor = 0.1;
+                const delta = event.deltaY > 0 ? 1 + scaleFactor : 1 - scaleFactor;
+                const newWidth = width * delta;
+                const newHeight = height * delta;
+
+                const svg = this.$refs.svg;
+                const point = svg.createSVGPoint();
+                point.x = event.clientX;
+                point.y = event.clientY;
+                const ctm = svg.getScreenCTM().inverse();
+                const transformed = point.matrixTransform(ctm);
+
+                const offsetX = (transformed.x - x) * (1 - delta);
+                const offsetY = (transformed.y - y) * (1 - delta);
+
+                this.viewBox = {x: x + offsetX, y: y + offsetY, weight: newWidth, height: newHeight};
+            },
+        },
+        computed: {
+            lines() {
+                const lines = [];
+
+                for (let i = 0; i < this.points.length; i++) {
+                    const nextIndex = (i + 1) % this.points.length;
+                    lines.push({
+                        x1: this.points[i].x,
+                        y1: this.points[i].y,
+                        x2: this.points[nextIndex].x,
+                        y2: this.points[nextIndex].y
+                    });
+                }
+
+                return lines;
+            },
+            observerLines() {
+                const lines = [];
+
+                for (let i = 0; i < this.points.length; i++) {
+                    lines.push({
+                        x1: this.points[i].x,
+                        y1: this.points[i].y,
+                        x2: this.observer.x,
+                        y2: this.observer.y,
+                    });
+                }
+
+                return lines;
+            },
+            viewBoxX() {
+                return this.viewBox.x;
+            },
+            viewBoxY() {
+                return this.viewBox.y;
+            },
+            viewBoxWidth() {
+                return this.viewBox.weight;
+            },
+            viewBoxHeight() {
+                return this.viewBox.height;
+            },
+            // Горизонтальные и вертикальные линии сетки
+            gridLinesX() {
+                const startX = Math.floor(this.viewBoxX / this.gridSize) * this.gridSize;
+                const endX = this.viewBoxX + this.viewBoxWidth;
+                return Array.from({ length: Math.ceil((endX - startX) / this.gridSize) + 1 },
+                    (_, i) => startX + i * this.gridSize);
+            },
+            gridLinesY() {
+                const startY = Math.floor(this.viewBoxY / this.gridSize) * this.gridSize;
+                const endY = this.viewBoxY + this.viewBoxHeight;
+                return Array.from({ length: Math.ceil((endY - startY) / this.gridSize) + 1 },
+                    (_, i) => startY + i * this.gridSize);
+            },
+            // Диагональные линии
+            diagonalLines() {
+                const lines = [];
+                const startX = this.viewBoxX - this.viewBoxHeight;
+                const endX = this.viewBoxX + this.viewBoxWidth + this.viewBoxHeight;
+
+                for (let x = startX; x <= endX; x += this.gridSize) {
+                    lines.push({ x1: x, y1: this.viewBoxY, x2: x - this.viewBoxHeight, y2: this.viewBoxY + this.viewBoxHeight });
+                    lines.push({ x1: x, y1: this.viewBoxY + this.viewBoxHeight, x2: x - this.viewBoxHeight, y2: this.viewBoxY });
+                }
+
+                return lines;
+            }
+        }
+    });
+
+    app.mount('#app');
+</script>
+</body>
+</html>

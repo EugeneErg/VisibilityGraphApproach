@@ -59,6 +59,8 @@
         <button @click="loadPoints">Load</button>
         <button @click="saveSvg">Save svg</button>
         <button @click="clear">Clear</button>
+        <button @click="saveToExamples">Save to examples</button>
+        <button @click="loadFromExamples">Load from examples</button>
         <span v-if="coordinate">
             x: {{ coordinate.x.toFixed(2) }}
             <br/>
@@ -296,6 +298,7 @@
             return Math.cos(this.value);
         }
     }
+
     class Point {
         constructor(x, y) {
             this.x = x;
@@ -309,13 +312,8 @@
 
     class State
     {
-        constructor(
-            visible,
-            firstPart,
-            lastPart,
-            previousPart,
-        ) {
-            this.visible = visible;
+        constructor(firstPart, lastPart, previousPart)
+        {
             this.firstPart = firstPart;
             this.lastPart = lastPart;
             this.previousPart = previousPart;
@@ -371,17 +369,25 @@
             saveToLocalStorage() {
                 localStorage.setItem("save", this.getSaveString());
             },
-            getSaveString() {
-                return JSON.stringify({
-                    points: this.points,
-                    viewBox: this.viewBox,
-                    observer: this.observer,
-                });
+            screenToString(points, viewBox, observer, name) {
+                return JSON.stringify({points: points, viewBox: viewBox, observer: observer, name: name});
+            },
+            getSaveString(name) {
+                return this.screenToString(this.points, this.viewBox, this.observer, name);
+            },
+            stringToScreen(string) {
+                const data = JSON.parse(string);
+
+                return {
+                    points: data.points.map(({x, y}) => new Point(x, y)),
+                    observer: new Point(data.observer.x, data.observer.y),
+                    viewBox: data.viewBox,
+                }
             },
             loadFromString(string) {
-                const data = JSON.parse(string);
-                this.points = data.points.map(({ x, y }) => new Point(x, y));
-                this.observer = new Point(data.observer.x, data.observer.y);
+                const data = this.stringToScreen(string);
+                this.points = data.points;
+                this.observer = data.observer;
                 this.viewBox = data.viewBox;
             },
             savePoints() {
@@ -399,6 +405,29 @@
                 link.href = URL.createObjectURL(blob);
                 link.download = "points.svg";
                 link.click();
+            },
+            findNextNumber(callback) {
+                const keys = Object.keys(localStorage);
+
+                for (
+                    var i = 0, result = callback(i);
+                    keys.indexOf(result) >= 0;
+                    i++, result = callback(i)
+                ) {
+                }
+
+                return result;
+            },
+            saveToExamples() {
+                const name = prompt('Введите название примера', 'Новый пример');
+                const key = this.findNextNumber(function (index) {
+                    return 'examples.' + index;
+                });
+
+                localStorage.setItem(key, this.getSaveString(name));
+            },
+            loadFromExamples() {
+
             },
             loadPoints() {
                 const input = document.createElement("input");
@@ -683,7 +712,7 @@
                         partTo.unsetPrevious();
                         state.lastPart.setNext(lineTo);
 
-                        return new State(state.visible, partTo, lineTo)
+                        return new State(partTo, lineTo, lineTo)
                     }
 
                     if (lineTo.distance < partTo.distance) {
@@ -698,11 +727,7 @@
                         if (intersectPart !== null && intersectPart.distance > lineTo.distance) {
                             partFrom.setPrevious(intersectPart);
 
-                            const res = new State(
-                                state.visible,
-                                intersectPart,
-                                lineTo,
-                            );
+                            const res = new State(intersectPart, lineTo, lineTo);
 
                             console.log(res)
 
@@ -728,11 +753,7 @@
                         partTo.setNext(intersectPoint);
                         intersectPoint.setNext(lineTo);
 
-                        return new State(
-                            state.visible,
-                            state.firstPart,
-                            lineTo,
-                        )
+                        return new State(state.firstPart, lineTo, lineTo)
                     }
 
                     //todo
@@ -749,7 +770,7 @@
                 ) {
                     if (partTo.angle.isEqual(lineFrom.angle)) {
                         return lineFrom.distance < partTo.distance
-                            ? new State(state.visible, null, null)
+                            ? new State(null, null, lineTo)
                             : state;
                     }
 
@@ -759,17 +780,17 @@
                         }
 
                         if (partTo.distance > lineTo.distance) {
-                            return new State(state.visible, null, null);
+                            return new State(null, null, lineTo);
                         }
 
                         continue;
                     }
 
-                    const intersectPart = this.getPartFromIntersect(lineTo, lineFrom, this.observer, partTo.point);
+                    const intersectPart = this.getPartFromIntersect(lineTo, lineFrom, this.observer, partTo);
 
                     if (intersectPart !== null) {
                         intersectPart.distance < partTo.distance
-                            ? new State(state.visible, null, null)
+                            ? new State(null, null, lineTo)
                             : state;
                     }
                 }
@@ -792,8 +813,8 @@
                         //текущая линия растет с этого угла.
                         if (partTo.distance < lineFrom.distance) {
                             //если текущая точка ближе к наблюдателю, чем точка начала линии
-                            console.log('Линию не видно. Ничего не меняется')
-                            return state;
+                            console.log('Линию не видно. Ничего не меняется 1')
+                            return new State(state.firstPart, state.lastPart, lineTo);
                         }
 
                         continue;
@@ -806,18 +827,21 @@
                             partTo.setNext(lineTo);
                             console.log('Линия что то обрезает')
 
-                            return new State(
-                                state.visible,
-                                state.firstPart,
-                                lineTo,
-                            )
+                            return new State(state.firstPart, lineTo, lineTo)
                         }
 
-                        console.log('Линию не видно. Ничего не меняется')
-                        return state;
+                        console.log('Линию не видно. Ничего не меняется 2')
+                        return new State(state.firstPart, state.lastPart, lineTo);
                     }
 
+                    /*todo
+
                     if (partTo.distance < lineTo.distance) {
+                        console.log('test', {
+                            partTo: partTo,
+                            partFrom: partFrom,
+                        })
+
                         const intersectPart = this.getPartFromIntersect(lineTo, lineFrom, this.observer, partTo);
 
                         if (intersectPart === null) {
@@ -828,7 +852,7 @@
                             alert('test')
                             return state;
                         }
-                    } else {
+                    } else*/ {
                         const intersectPart = this.getPartFromIntersect(partTo, partFrom, this.observer, lineTo);
 
                         if (intersectPart === null) {
@@ -836,7 +860,6 @@
                         }
 
                         if (intersectPart.distance < lineTo.distance) {
-                            //todo обе линии пересекаются в точке наблюдателя
                             console.log({
                                 intersectPart: intersectPart,
                                 partFrom: partFrom,
@@ -844,49 +867,47 @@
                                 lineTo: lineTo,
                                 observer: this.observer,
                             });
-                            console.log('Линию не видно. Ничего не меняется')
-                            return state;
+                            //todo обе линии пересекаются в точке наблюдателя
+                            console.log('Линию не видно. Ничего не меняется 3')
+
+                            return new State(state.firstPart, state.lastPart, lineTo);
                         }
 
                         partTo.setNext(intersectPart);
                         intersectPart.setNext(lineTo);
                         console.log('Линию что то обрезает')
 
-                        return new State(
-                            state.visible,
-                            state.firstPart,
-                            lineTo,
-                        )
+                        return new State(state.firstPart, lineTo, lineTo)
                     }
                 }
 
-                console.log('Все удаляется(')
-                return new State(state.visible, null, null);
+                console.log('Все удаляется(', state)
+                return new State(null, null, lineTo);
             },
             shiftLevel(direction, firstPartAngle, previousPartAngle, currentPartAngle, state) {
-                console.log({
+                /*console.log({
                     direction: direction,
                     firstPartAngle: firstPartAngle === null ? null : firstPartAngle.getDegrees(),
                     previousPartAngle: previousPartAngle.getDegrees(),
                     currentPartAngle: currentPartAngle.getDegrees(),
                     state: state,
-                });
+                });*/
 
                 if (firstPartAngle === null) {
-                    console.log('Угол сброшен. Начинаем отсчет заново. Засекли, что двигаемся ' + (direction ? 'по' : 'против') + ' часовой стрелке')
+                    //console.log('Угол сброшен. Начинаем отсчет заново. Засекли, что двигаемся ' + (direction ? 'по' : 'против') + ' часовой стрелке')
                     //угол сброшен, сбрасываем счетчик
                     return {level: 0, direction: direction};
                 }
 
                 if (direction === null) {
-                    console.log('Топчемся на месте');
+                    //console.log('Топчемся на месте');
                     //топчемся на месте, счетчик не меняется
                     return state;
                 }
 
                 //тут лучше точное сравнение. Так ошибка не накапливается
                 if (previousPartAngle.isEqual(firstPartAngle.value, 0)) {
-                    console.log('Начали двигаться ' + (direction ? 'по' : 'против') + ' часовой стрелке');
+                    //console.log('Начали двигаться ' + (direction ? 'по' : 'против') + ' часовой стрелке');
                     //отходим от старта
                     return {level: state.level, direction: direction};
                 }
@@ -898,17 +919,17 @@
                     //Смотрим на текущее направление и на направление в какую сторону шли
 
                     if (direction === state.direction) {
-                        console.log('Сделали ещё один круг ' + (direction ? 'по' : 'против') + ' часовой стрелке')
+                        //console.log('Сделали ещё один круг ' + (direction ? 'по' : 'против') + ' часовой стрелке')
                         return {level: state.level + (direction ? 1 : -1), direction: direction};
                     }
 
-                    console.log('Вернулись к началу текущего круга')
+                    //console.log('Вернулись к началу текущего круга')
 
                     return {level: state.level, direction: null};
                 }
 
                 if (direction !== state.direction) {
-                    console.log('Перешагнули обратно через начало круга ' + (direction ? 'по' : 'против') + ' часовой стрелке')
+                    //console.log('Перешагнули обратно через начало круга ' + (direction ? 'по' : 'против') + ' часовой стрелке')
 
                     return {level: state.level, direction: direction};
                 }
@@ -916,28 +937,28 @@
                 const between = firstPartAngle.between(previousPartAngle, currentPartAngle);
 
                 if (direction) {
-                    between
+                     /*between
                         ? console.log('Перешагнули начало круга по часовой стрелке')
-                        : console.log('Где то идем по часовой стрелке');
+                        : console.log('Где то идем по часовой стрелке');*/
 
                     return {level: state.level + (between ? 1 : 0), direction: direction};
                 }
 
-                between
+                /*between
                     ? console.log('Где то идем против часовой стрелке')
-                    : console.log('Перешагнули начало круга против часовой стрелке');
+                    : console.log('Перешагнули начало круга против часовой стрелке');*/
 
                 return {level: state.level + (between ? 0 : -1), direction: direction};
             },
             /** @returns State */
-            usePart(state, previousPart, currentPart, number, level) {
-                var shiftAngle = this.getRelativeAngle(previousPart.angle, currentPart.angle);
+            usePart(state, currentPart, number, level) {
+                var shiftAngle = this.getRelativeAngle(state.previousPart.angle, currentPart.angle);
                 var lineDirectionAsc = !shiftAngle.isNegative();
 
                 if (state.firstPart === null && state.lastPart === null) {
                     console.log({
                         lineAngles: {
-                            previous: previousPart.angle.getDegrees(),
+                            previous: state.previousPart.angle.getDegrees(),
                             current: currentPart.angle.getDegrees(),
                         },
                         state: {
@@ -953,13 +974,9 @@
 
                     if (lineDirectionAsc) {
                         console.log('case 1: empty state and ->');
-                        previousPart.setNext(currentPart);
+                        state.previousPart.setNext(currentPart);
 
-                        return new State(
-                            true,
-                            previousPart,
-                            currentPart,
-                        );
+                        return new State(state.previousPart, currentPart, currentPart);
                     }
 
                     console.log('case 1: empty state and <-');
@@ -967,12 +984,12 @@
                     return state;
                 }
 
-                var previousType = this.getType(previousPart.angle, state.firstPart.angle, state.lastPart.angle, level);
+                var previousType = this.getType(state.previousPart.angle, state.firstPart.angle, state.lastPart.angle, level);
                 var currentType = this.getType(currentPart.angle, state.firstPart.angle, state.lastPart.angle, level);
 
                 console.log({
                     lineAngles: {
-                        previous: previousPart.angle.getDegrees(),
+                        previous: state.previousPart.angle.getDegrees(),
                         current: currentPart.angle.getDegrees(),
                     },
                     state: {
@@ -995,105 +1012,103 @@
                         state.lastPart.setNext(currentPart, true);
                         console.log('add point');
 
-                        return new State(
-                            state.lastPart.point.isEqual(previousPart.point),
-                            state.firstPart,
-                            currentPart,
-                        );
+                        return new State(state.firstPart, currentPart, currentPart);
                     }
 
                     if (previousType === 'end' && currentType === 'end') {
                         console.log('add point');
                         state.lastPart.setNext(currentPart, true);
 
-                        return new State(
-                            state.lastPart.point.isEqual(previousPart.point),
-                            state.firstPart,
-                            currentPart,
-                        );
+                        return new State(state.firstPart, currentPart, currentPart);
+                    }
+
+                    if (previousType === 'in' && currentType === 'start') {
+                        const intersectPart = this.getPartFromIntersect(state.previousPart, currentPart, this.observer, state.lastPart)
+
+                        if (intersectPart === null) {
+                            reportError('wtf');
+                        }
+
+                        state.lastPart.setNext(intersectPart);
+                        intersectPart.setNext(currentPart);
+
+                        return new State(state.firstPart, currentPart, currentPart);
                     }
 
                     if (previousType === 'end' && currentType === 'start') {
+
+
                         //хоть линия и соединяет первый и последний угол видимой кривой, но она может пересекать кривую
                         //необходима доп проверка.
-                        console.log('add point');
                         state.lastPart.setNext(currentPart, true);
 
-                        return new State(
-                            state.lastPart.point.isEqual(previousPart.point),
-                            state.firstPart,
-                            currentPart,
-                        );
+                        return new State(state.firstPart, currentPart, currentPart);
                     }
 
                     if (previousType === 'end' && currentType === 'in') {
-                        return this.findUnionAsc(state, previousPart, currentPart);
+                        return this.findUnionAsc(state, state.previousPart, currentPart);
                     }
 
                     if (previousType === 'in' && currentType === 'out') {
 
-                        return this.findIncludeDesc(state, previousPart, currentPart);
+                        return this.findIncludeDesc(state, state.previousPart, currentPart);
                     }
 
                     if (previousType === 'out' && currentType === 'out') {
                         //
-                        return this.findIncludeDesc(state, previousPart, currentPart);
+                        return this.findIncludeDesc(state, state.previousPart, currentPart);
+                    }
+
+                    if (previousType === 'in' && currentType === 'in') {
+
                     }
 
                     state.lastPart.setNext(currentPart);
                 } else {
+                    if (previousType === 'in' && currentType === 'in') {
+                        return new State(state.firstPart, state.lastPart, currentPart);
+                    }
+
                     if (previousType === 'end' && currentType === 'in') {
                         //линия может быть как за дугой, так и перед
                         //может либо быть видима вся либо вся невидима.
                         //либо добавляем, либо нет. Ничего не отрезаем
 
-                        if (previousPart === state.lastPart) {
+                        if (state.previousPart === state.lastPart) {
                             console.log('WWWWWWWWWW');
                             //первая точка линии является частью видимой дуги
-                            return this.findIntersectDesc(state, previousPart, currentPart);
+                            return this.findIntersectDesc(state, state.previousPart, currentPart);
                         }
 
-                        if (previousPart.distance < state.lastPart.distance) {
+                        if (state.previousPart.distance < state.lastPart.distance) {
                             //линия явно за дугой
-                            return state;
+                            return new State(state.firstPart, state.lastPart, currentPart);
                         }
 
-                        state.lastPart.setNext(previousPart)
-                        previousPart.setNext(currentPart);
+                        state.lastPart.setNext(state.previousPart)
+                        state.previousPart.setNext(currentPart);
                         console.log('add 2 point');
 
-                        return new State(
-                            true,
-                            state.firstPart,
-                            currentPart,
-                        );
+                        return new State(state.firstPart, currentPart, currentPart);
                     }
 
                     if (previousType === 'end' && currentType === 'start') {
-                        return this.findIntersectAsc(state, previousPart, currentPart);
+                        return this.findIntersectAsc(state, state.previousPart, currentPart);
 
                         //todo может быть сзади и спереди видимой дуги. Сейчас учитывается только кейс спереди
                         state.firstPart.setNext(currentPart);
 
-                        return new State(
-                            true,
-                            state.firstPart,
-                            currentPart,
-                        );
+                        return new State(state.firstPart, currentPart, currentPart);
                     }
 
                     if (previousType === 'end' && currentType === 'out') {
                         //todo может быть сзади и спереди видимой дуги. Сейчас учитывается только кейс спереди
 
-                        return this.findIntersectAsc(state, previousPart, currentPart);
+                        return this.findIntersectAsc(state, state.previousPart, currentPart);
 
                         state.firstPart.setNext(currentPart);
 
-                        return new State(
-                            true,
-                            state.firstPart,
-                            currentPart,
-                        );
+                        return new State(state.firstPart, currentPart, currentPart);
                     }
 
                     //движемся назад
@@ -1126,7 +1141,7 @@
                     : state;*/
                 console.log('new case');
 
-                return state;
+                return new State(state.firstPart, state.lastPart, currentPart);
             },
             findIntersectBack(previousPart, currentPart, state) {
                 var currentDistanceGreaterThanVisible = undefined;
@@ -1229,7 +1244,6 @@
                 var firstPart = null;
                 var startAngle = null;
                 var directionAsc = null;
-                var level = 0;
                 var levelState = null;
                 console.clear();
 
@@ -1245,7 +1259,7 @@
                     if (previousPart === null) {
                         startAngle = currentPart.angle;
                         firstPart = previousPart = currentPart;
-                        state = new State(true, null, null, 0);
+                        state = new State(null, null, previousPart);
                         //console.log(currentPart.angle.getDegrees());
 
                         continue;
@@ -1262,7 +1276,7 @@
                         currentPart.angle,
                         levelState,
                     );
-                    state = this.usePart(state, previousPart, currentPart, number, levelState.level);
+                    state = this.usePart(state, currentPart, number, levelState.level);
                     previousPart = currentPart;
                     directionAsc = newDirectionAsc;
                 }
@@ -1270,27 +1284,16 @@
                 var result = [];
 
                 if (firstPart !== null) {
-                    //firstPart.unsetNext();
-                    //state = this.usePart(state, previousPart, firstPart, 0);
+                    state = this.usePart(state, firstPart, 0, levelState === null ? 0 : levelState.level);
+                    state.firstPart.unsetPrevious();
 
                     console.log('result', state);
-                    var firstRoot = null;
 
                     for (
                         var root = state.firstPart;
                         root !== null;
                         root = root.getNext()
                     ) {
-                        if (root === firstRoot) {
-                            root = null;
-                            break;
-                        }
-
-                        if (firstRoot === null) {
-                            firstRoot = root;
-                        }
-
-                        //console.log('push', root);
                         result.push(root.point);
                     }
                 }
